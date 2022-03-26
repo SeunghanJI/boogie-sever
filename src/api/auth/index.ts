@@ -98,7 +98,7 @@ app.post('/code/email', (req: Request, res: Response) => {
   const currentDate: string = getCurrentDate();
 
   knex('auth')
-    .del()
+    .delete()
     .where({ email: id, is_auth: 0 })
     .then((ignore) => {
       return Promise.all([
@@ -118,8 +118,8 @@ app.post('/code/email', (req: Request, res: Response) => {
     });
 });
 
-const checkValidDate = (authDate: string, today: string): boolean => {
-  return dayjs(authDate).diff(today, 'm') > -5;
+const checkValidAuthDate = (authDate: string, currentDate: string): boolean => {
+  return dayjs(authDate).diff(currentDate, 'm') > -5;
 };
 
 app.post('/email', (req: Request, res: Response) => {
@@ -143,7 +143,7 @@ app.post('/email', (req: Request, res: Response) => {
         });
       }
 
-      if (!checkValidDate(authInfo.date, currentDate)) {
+      if (!checkValidAuthDate(authInfo.date, currentDate)) {
         return Promise.reject({
           code: 409,
           message: '인증요청 시간이 만료되었습니다.',
@@ -163,7 +163,7 @@ app.post('/email', (req: Request, res: Response) => {
     .then((ignore) => {
       res.status(200).json({ isAuth: true });
     })
-    .catch((err: { code: number; message: string }) => {
+    .catch((err) => {
       if (isNaN(err.code)) {
         return res.status(500).json({ message: '서버요청에 실패하였습니다.' });
       }
@@ -186,17 +186,6 @@ app.post('/login', (req: Request, res: Response) => {
     return res.status(403).json({ message: '아이디가 형식에 맞지않습니다.' });
   }
 
-  const refreshToken = generatedJwtToken({
-    email: id,
-    sub: 'refresh',
-    expiresIn: '24h',
-  });
-  const accessToken = generatedJwtToken({
-    email: id,
-    sub: 'access',
-    expiresIn: '5m',
-  });
-
   knex('user')
     .select('nickname', 'is_admin as isAdmin')
     .where({ id, password: encryptString(password) })
@@ -209,6 +198,17 @@ app.post('/login', (req: Request, res: Response) => {
         });
       }
 
+      const refreshToken = generatedJwtToken({
+        email: id,
+        sub: 'refresh',
+        expiresIn: '24h',
+      });
+      const accessToken = generatedJwtToken({
+        email: id,
+        sub: 'access',
+        expiresIn: '5m',
+      });
+
       res.status(200).json({
         data: {
           refreshToken,
@@ -219,7 +219,7 @@ app.post('/login', (req: Request, res: Response) => {
         },
       });
     })
-    .catch((err: { code: number; message: string }) => {
+    .catch((err) => {
       if (isNaN(err.code)) {
         return res.status(500).json({ message: '서버요청에 실패하였습니다.' });
       }
@@ -266,10 +266,6 @@ app.post('/join', (req: Request, res: Response) => {
     return res.status(400).json({ message: '비밀번호가 일치하지 않습니다.' });
   }
 
-  if (birthday?.length !== 8) {
-    return res.status(400).json({ message: '생년월일을 8자리로 입력하세요.' });
-  }
-
   const promiseAllArray = [
     knex('user')
       .select('id', 'nickname')
@@ -281,6 +277,12 @@ app.post('/join', (req: Request, res: Response) => {
   if (isStudent) {
     if (!checkObjectValueEmpty({ uniID, name, birthday })) {
       return res.status(400).json({ message: '잘못된 요청입니다.' });
+    }
+
+    if (birthday?.length !== 8) {
+      return res
+        .status(400)
+        .json({ message: '생년월일을 8자리로 입력하세요.' });
     }
 
     promiseAllArray.push(
@@ -333,7 +335,7 @@ app.post('/join', (req: Request, res: Response) => {
     .then((ignore) => {
       res.status(201).json({ isJoin: true });
     })
-    .catch((err: { code: number; message: string }) => {
+    .catch((err) => {
       if (isNaN(err.code)) {
         return res.status(500).json({ message: '서버요청에 실패하였습니다.' });
       }
