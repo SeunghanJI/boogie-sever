@@ -99,12 +99,12 @@ app.post('/code/email', (req: Request, res: Response) => {
 
   knex('auth')
     .del()
-    .where({ id, is_auth: 0 })
+    .where({ email: id, is_auth: 0 })
     .then((ignore) => {
       return Promise.all([
         sendMail(id, authCode),
         knex('auth').insert({
-          id,
+          email: id,
           auth_code: authCode,
           date: currentDate,
         }),
@@ -133,7 +133,7 @@ app.post('/email', (req: Request, res: Response) => {
 
   knex('auth')
     .select('date')
-    .where({ id, auth_code: code, is_auth: 0 })
+    .where({ email: id, auth_code: code, is_auth: 0 })
     .first()
     .then((authInfo: { date: string }) => {
       if (!authInfo) {
@@ -156,7 +156,7 @@ app.post('/email', (req: Request, res: Response) => {
           date: currentDate,
         })
         .where({
-          id,
+          email: id,
           auth_code: code,
         });
     })
