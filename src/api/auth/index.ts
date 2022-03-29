@@ -230,36 +230,7 @@ app.post('/login', (req: Request, res: Response) => {
 });
 
 const isVaildBirthday = (birthday: string = ''): boolean => {
-  const year: number = Number(birthday.substring(0, 4));
-  const month: number = Number(birthday.substring(4, 6));
-  const day: number = Number(birthday.substring(6, 8));
-  const yearNow: number = Number(dayjs().format('YYYY'));
-
-  if (birthday.length == 8) {
-    if (1900 > year || year > yearNow) {
-      return false;
-    } else if (month < 1 || month > 12) {
-      return false;
-    } else if (day < 1 || day > 31) {
-      return false;
-    } else if (
-      (month == 4 || month == 6 || month == 9 || month == 11) &&
-      day == 31
-    ) {
-      return false;
-    } else if (month == 2) {
-      const isleap = dayjs(birthday).isLeapYear();
-      if (day > 29 || (day == 29 && !isleap)) {
-        return false;
-      } else {
-        return true;
-      }
-    } else {
-      return true;
-    }
-  } else {
-    return false;
-  }
+  return dayjs(birthday, 'YYYYMMDD').format('YYYYMMDD') === birthday;
 };
 
 interface joinBody {
@@ -314,7 +285,7 @@ app.post('/join', (req: Request, res: Response) => {
       return res.status(400).json({ message: '잘못된 요청입니다.' });
     }
 
-    if (isVaildBirthday(birthday)) {
+    if (!isVaildBirthday(birthday)) {
       return res.status(400).json({ message: '유효하지 않는 생년월일입니다.' });
     }
 
