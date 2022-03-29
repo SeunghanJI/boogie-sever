@@ -5,6 +5,8 @@ import { generatedJwtToken } from '../../token/index';
 import { checkObjectValueEmpty } from '../../utils';
 import nodemailer from 'nodemailer';
 import dayjs from 'dayjs';
+import isLeapYear from 'dayjs/plugin/isLeapYear';
+dayjs.extend(isLeapYear);
 import dotenv from 'dotenv';
 dotenv.config();
 
@@ -111,7 +113,7 @@ app.post('/code/email', (req: Request, res: Response) => {
       ]);
     })
     .then((ignore) => {
-      res.status(201).json({ isSend: true });
+      res.status(201).json({ isAuth: true });
     })
     .catch((err) => {
       res.status(500).json({ message: '서버요청에 실패하였습니다.' });
@@ -227,6 +229,39 @@ app.post('/login', (req: Request, res: Response) => {
     });
 });
 
+const isVaildBirthday = (birthday: string = ''): boolean => {
+  const year: number = Number(birthday.substring(0, 4));
+  const month: number = Number(birthday.substring(4, 6));
+  const day: number = Number(birthday.substring(6, 8));
+  const yearNow: number = Number(dayjs().format('YYYY'));
+
+  if (birthday.length == 8) {
+    if (1900 > year || year > yearNow) {
+      return false;
+    } else if (month < 1 || month > 12) {
+      return false;
+    } else if (day < 1 || day > 31) {
+      return false;
+    } else if (
+      (month == 4 || month == 6 || month == 9 || month == 11) &&
+      day == 31
+    ) {
+      return false;
+    } else if (month == 2) {
+      const isleap = dayjs(birthday).isLeapYear();
+      if (day > 29 || (day == 29 && !isleap)) {
+        return false;
+      } else {
+        return true;
+      }
+    } else {
+      return true;
+    }
+  } else {
+    return false;
+  }
+};
+
 interface joinBody {
   id: string;
   nickname: string;
@@ -279,10 +314,8 @@ app.post('/join', (req: Request, res: Response) => {
       return res.status(400).json({ message: '잘못된 요청입니다.' });
     }
 
-    if (birthday?.length !== 8) {
-      return res
-        .status(400)
-        .json({ message: '생년월일을 8자리로 입력하세요.' });
+    if (isVaildBirthday(birthday)) {
+      return res.status(400).json({ message: '유효하지 않는 생년월일입니다.' });
     }
 
     promiseAllArray.push(
@@ -295,10 +328,28 @@ app.post('/join', (req: Request, res: Response) => {
         })
         .first()
     );
+
+    promiseAllArray.push(
+      knex('user')
+        .select('id')
+        .where({
+          uni_id: uniID,
+          name: name,
+          birthday: birthday,
+        })
+        .first()
+    );
   }
 
   Promise.all(promiseAllArray)
-    .then(([user, student]) => {
+    .then(([user, student, existingUser]) => {
+      if (isStudent && !!existingUser) {
+        return Promise.reject({
+          code: 409,
+          message: '이미 계정이 존재합니다.',
+        });
+      }
+
       if (!!user) {
         if (user.id === id) {
           return Promise.reject({
@@ -315,7 +366,7 @@ app.post('/join', (req: Request, res: Response) => {
         }
       }
 
-      if (!student) {
+      if (isStudent && !student) {
         return Promise.reject({
           code: 403,
           message: '등록되어있지 않은 학생정보 입니다.',
