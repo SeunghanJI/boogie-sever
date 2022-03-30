@@ -5,6 +5,7 @@ import { generatedJwtToken } from '../../token/index';
 import { checkObjectValueEmpty } from '../../utils';
 import nodemailer from 'nodemailer';
 import dayjs from 'dayjs';
+import { verifyAccessToken } from '../../token/index';
 import isLeapYear from 'dayjs/plugin/isLeapYear';
 dayjs.extend(isLeapYear);
 import dotenv from 'dotenv';
@@ -184,10 +185,6 @@ app.post('/login', (req: Request, res: Response) => {
     return res.status(400).json({ message: '잘못된 요청입니다.' });
   }
 
-  if (!verifyEmail(id)) {
-    return res.status(403).json({ message: '아이디가 형식에 맞지않습니다.' });
-  }
-
   knex('user')
     .select('nickname', 'is_admin as isAdmin')
     .where({ id, password: encryptString(password) })
@@ -363,6 +360,52 @@ app.post('/join', (req: Request, res: Response) => {
       }
       res.status(err.code).json({ message: err.message });
     });
+});
+
+app.post('/admin', verifyAccessToken, async (req: Request, res: Response) => {
+  const email: string = res.locals.email;
+  const id: string = req.body.id;
+  const password: string = req.body.password;
+
+  if (
+    !checkObjectValueEmpty({
+      id,
+      password,
+    })
+  ) {
+    return res.status(400).json({ message: '잘못된 요청입니다.' });
+  }
+
+  try {
+    const { is_admin: isAdmin } = await knex('user')
+      .select('nickname', 'is_admin')
+      .where({ id: email })
+      .first();
+
+    if (!isAdmin) {
+      return res.status(403).json({ message: '관리자 계정이 아닙니다.' });
+    }
+
+    const admins = await knex('user')
+      .select('is_admin')
+      .where({ is_admin: true });
+    const adminLength = admins.length;
+
+    await knex('user').insert({
+      id,
+      nickname: `admin${adminLength}`,
+      password: encryptString(password),
+      is_student: 0,
+      is_admin: 1,
+    });
+
+    res.status(201).json({ isJoin: true });
+  } catch (error: any) {
+    if (isNaN(error.code)) {
+      return res.status(500).json({ message: '서버요청에 실패하였습니다.' });
+    }
+    res.status(error.code).json({ message: error.message });
+  }
 });
 
 export default app;
