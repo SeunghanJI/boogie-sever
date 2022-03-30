@@ -1,4 +1,5 @@
 import express, { Request, Response, NextFunction } from 'express';
+import jwt from 'jsonwebtoken';
 import { Knex } from 'knex';
 const app: express.Application = express();
 const knex: Knex = require('knex')({
@@ -21,10 +22,14 @@ const knex: Knex = require('knex')({
   },
 });
 
-import { verifyRefreshToken, generatedJwtToken } from '../../token/index';
+import {
+  verifyRefreshToken,
+  generatedJwtToken,
+  verifyToken,
+} from '../../token/index';
 
 app.post(
-  '/refreshToken',
+  '/refresh-token',
   verifyRefreshToken,
   async (req: Request, res: Response) => {
     const email = res.locals.email;
@@ -57,5 +62,16 @@ app.post(
     }
   }
 );
+
+app.post('/verify/refresh-token', (req: Request, res: Response) => {
+  const response = verifyToken(req, res, 'refresh');
+  const { isOk }: { isOk: boolean } = response;
+
+  if (isOk) {
+    res.status(200).json({ isValid: true });
+  } else {
+    res.status(401).json({ isValid: false });
+  }
+});
 
 export default app;

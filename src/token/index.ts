@@ -11,15 +11,17 @@ interface VerifyTokenErrorJSON {
   status: number;
   message: string;
   code?: string;
+  type?: string;
 }
 
-const verifyToken = (
+export const verifyToken = (
   req: Request,
   res: Response,
   type: string
 ): { isOk: boolean; json?: VerifyTokenErrorJSON } => {
   const authorization: string = req.headers.authorization || '';
   const jwtSecretKey: string = process.env.jWT_SECRET || '';
+
   if (!authorization) {
     return {
       isOk: false,
@@ -49,6 +51,7 @@ const verifyToken = (
             status: 419,
             message: `만료된 ${typeToKor} 토큰입니다.`,
             code: 'expired',
+            type,
           },
         };
       }
@@ -78,11 +81,15 @@ export const verifyAccessToken = (
     const status = response.json?.status || 401;
     const message = response.json?.message;
     const code = response.json?.code;
+    const type = response.json?.type;
 
     return res.status(status).json({
       message,
       ...(!!code && {
         code,
+      }),
+      ...(!!type && {
+        type,
       }),
     });
   }
@@ -102,11 +109,15 @@ export const verifyRefreshToken = (
     const status = response.json?.status || 401;
     const message = response.json?.message;
     const code = response.json?.code;
+    const type = response.json?.type;
 
     return res.status(status).json({
       message,
       ...(!!code && {
         code,
+      }),
+      ...(!!type && {
+        type,
       }),
     });
   }
