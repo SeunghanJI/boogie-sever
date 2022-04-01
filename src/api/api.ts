@@ -7,4 +7,7 @@ app.use('/auth', apiAuth);
 import apiToken from './token/index';
 app.use('/token', apiToken);
 
+import apiMap from './map/index';
+app.use('/map', apiMap);
+
 export default app;
