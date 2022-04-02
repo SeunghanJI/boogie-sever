@@ -10,4 +10,7 @@ app.use('/token', apiToken);
 import apiMap from './map/index';
 app.use('/map', apiMap);
 
+import apiCategory from './category/index';
+app.use('/category', apiCategory);
+
 export default app;
