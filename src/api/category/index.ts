@@ -48,13 +48,13 @@ interface Category {
 app.get('/job', async (req: Request, res: Response) => {
   try {
     const jobCategoryList: Category[] = await knex('job_category').select('*');
-    res.status(200).json(jobCategoryList);
+    res.status(200).json({ jobCategoryList });
   } catch (error) {
     res.status(500).json({ message: '서버요청에 실패하였습니다.' });
   }
 });
 
-app.get('/region', async (req: Request, res: Response) => {
+app.get('/region', (req: Request, res: Response) => {
   try {
     const regionList = Object.keys(REGION_MAP).reduce(
       (regionList: { id: string; name: string }[], region) => {
@@ -63,7 +63,7 @@ app.get('/region', async (req: Request, res: Response) => {
       },
       []
     );
-    res.status(200).json(regionList);
+    res.status(200).json({ regionList });
   } catch (error) {
     res.status(500).json({ message: '서버요청에 실패하였습니다.' });
   }
@@ -72,7 +72,7 @@ app.get('/region', async (req: Request, res: Response) => {
 app.get('/plattform', async (req: Request, res: Response) => {
   try {
     const plattformList: Category[] = await knex('plattform').select('*');
-    res.status(200).json(plattformList);
+    res.status(200).json({ plattformList });
   } catch (error) {
     res.status(500).json({ message: '서버요청에 실패하였습니다.' });
   }
@@ -81,7 +81,7 @@ app.get('/plattform', async (req: Request, res: Response) => {
 app.get('/technology', async (req: Request, res: Response) => {
   try {
     const technologyList: Category[] = await knex('technology').select('*');
-    res.status(200).json(technologyList);
+    res.status(200).json({ technologyList });
   } catch (error) {
     res.status(500).json({ message: '서버요청에 실패하였습니다.' });
   }
