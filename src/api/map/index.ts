@@ -28,7 +28,7 @@ app.get('/search', async (req: Request, res: Response) => {
     });
     const searchResultList = data.documents.reduce(
       (documents: AddressInfo[], document: any) => {
-        if (!document?.road_address_name) return;
+        if (!document?.road_address_name) return documents;
         const addressInfo: AddressInfo = {
           address: `${document.road_address_name} ${document.place_name || ''}`,
           x: document.x,
