@@ -1,4 +1,4 @@
-import express, { Request, Response, NextFunction } from 'express';
+import express from 'express';
 const app: express.Application = express();
 
 import apiAuth from './auth/index';
@@ -12,5 +12,8 @@ app.use('/map', apiMap);
 
 import apiCategory from './category/index';
 app.use('/category', apiCategory);
+
+import apiEmployment from './employment/index';
+app.use('/employment', apiEmployment);
 
 export default app;
