@@ -70,6 +70,7 @@ export const setViewCount = async (
         maxAge,
         httpOnly: true,
       });
+      next();
     } catch {
       next();
     }
