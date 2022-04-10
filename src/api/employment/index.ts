@@ -298,32 +298,30 @@ app.post(
       const email = res.locals.email;
       const id = req.body.id;
 
-      Promise.all([
+      const [user, jobPosting]: [
+        { id: string; is_student: number },
+        { applicant: string }
+      ] = await Promise.all([
         knex('user').select('id', 'is_student').where({ id: email }).first(),
         knex('job_posting').select('applicant').where({ id }).first(),
-      ]).then(
-        async ([user, jobPosting]: [
-          { id: string; is_student: number },
-          { applicant: string }
-        ]) => {
-          if (!user.is_student) {
-            return res.status(403).json({ message: '지원 하실 수 없습니다.' });
-          }
+      ]);
 
-          const applicant = !!jobPosting.applicant
-            ? (JSON.parse(jobPosting?.applicant) as Array<string>)
-            : [];
+      if (!user.is_student) {
+        return res.status(403).json({ message: '지원 하실 수 없습니다.' });
+      }
 
-          if (!applicant.find((userId: string) => userId === user.id)) {
-            applicant.push(user.id);
-            await knex('job_posting')
-              .where({ id })
-              .update('applicant', `${JSON.stringify(applicant)}`);
-          }
+      const applicant = !!jobPosting.applicant
+        ? (JSON.parse(jobPosting?.applicant) as Array<string>)
+        : [];
 
-          res.status(201).json({ isApplied: true });
-        }
-      );
+      if (!applicant.find((userId: string) => userId === user.id)) {
+        applicant.push(user.id);
+        await knex('job_posting')
+          .where({ id })
+          .update('applicant', `${JSON.stringify(applicant)}`);
+      }
+
+      res.status(201).json({ isApplied: true });
     } catch (error: any) {
       res.status(500).json({ message: '서버요청에 실패하였습니다.' });
     }
