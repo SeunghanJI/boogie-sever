@@ -242,7 +242,7 @@ app.post(
   verifyAccessToken,
   async (req: Request, res: Response) => {
     try {
-      const email = res.locals.email;
+      const email: string = res.locals.email;
       const body: EmploymentBody = JSON.parse(JSON.stringify(req.body));
       const { companyName, title, content, address, deadline, positionId } =
         body;
@@ -267,7 +267,10 @@ app.post(
         throw { code: 400, message: '잘못된 요청입니다.' };
       }
 
-      const user = await knex('user').select('id').where({ id: email }).first();
+      const user: { id: string } = await knex('user')
+        .select('id')
+        .where({ id: email })
+        .first();
       const resizedImageBuffer = await sharp(req.file?.buffer)
         .resize({ fit: 'fill', width: 1080, height: 790 })
         .toBuffer();
@@ -309,8 +312,8 @@ app.post(
       ) {
         throw { code: 400, message: '잘못된 요청입니다.' };
       }
-      const email = res.locals.email;
-      const id = req.body.id;
+      const email: string = res.locals.email;
+      const id: string = req.body.id;
 
       const [user, jobPosting]: [
         { id: string; is_student: number },
@@ -340,6 +343,7 @@ app.post(
       if (!isNaN(error.code) && !!error.message) {
         return res.status(error.code).json({ message: error.message });
       }
+
       res.status(500).json({ message: '서버요청에 실패하였습니다.' });
     }
   }
