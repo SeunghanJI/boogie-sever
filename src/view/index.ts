@@ -28,11 +28,11 @@ export const setViewCount = async (
   req: Request,
   res: Response,
   next: NextFunction
-): Promise<void> => {
+): Promise<Response<any, Record<string, any>> | undefined> => {
   const id: string = req.query.id as string;
 
   if (!Object.keys(req).length || !Object.keys(res).length || !id) {
-    return;
+    return res.status(400).json({ message: '잘못된 요청입니다.' });
   }
 
   const viewToken: string[] = !!req?.cookies?.view
