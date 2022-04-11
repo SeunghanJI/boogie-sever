@@ -10,7 +10,6 @@ import { setViewCount } from '../../view/index';
 import { verifyRefreshToken } from '../../token/index';
 dotenv.config();
 
-const S3_BUCKET_NAME: string = process.env.S3_BUCKET_NAME || '';
 const app: express.Application = express();
 
 const knex: Knex = require('knex')({
