@@ -159,7 +159,7 @@ app.get('/list', async (req: Request, res: Response) => {
     }
 
     const rawEmploymentList: EmploymentBody[] = await EmploymentListQuery;
-    const employmentList = rawEmploymentList.map((employmentInfo) => {
+    const jobPostingList = rawEmploymentList.map((employmentInfo) => {
       const splitedAddress: string =
         JSON.parse(employmentInfo.addressInformation as string)?.address.split(
           ' '
@@ -184,7 +184,7 @@ app.get('/list', async (req: Request, res: Response) => {
     });
 
     res.status(200).json({
-      employmentList,
+      jobPostingList,
       filterOption: [
         ...filterOption,
         ...positionFilter.map((position) => position.name),
@@ -312,6 +312,7 @@ app.post(
       ) {
         throw { code: 400, message: '잘못된 요청입니다.' };
       }
+
       const email: string = res.locals.email;
       const id: string = req.body.id;
 
