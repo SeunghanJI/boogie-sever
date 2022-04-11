@@ -10,6 +10,9 @@ app.use('/token', apiToken);
 import apiMap from './map/index';
 app.use('/map', apiMap);
 
+import apiSenierProject from './senier-project';
+app.use('/senier-project', apiSenierProject);
+
 import apiCategory from './category/index';
 app.use('/category', apiCategory);
 
