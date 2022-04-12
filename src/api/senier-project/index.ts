@@ -148,7 +148,7 @@ app.post(
         JSON.parse(JSON.stringify(req.body))
       )
     ) {
-      return res.status(200).json({
+      return res.status(400).json({
         message: '잘못된 요청입니다.',
       });
     }
