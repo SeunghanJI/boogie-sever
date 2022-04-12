@@ -8,6 +8,7 @@ import { uploadFileToS3 } from '../../s3/index';
 import { checkRequiredProperties } from '../../utils';
 import { setViewCount } from '../../view/index';
 import { verifyRefreshToken } from '../../token/index';
+import { platform } from 'os';
 dotenv.config();
 
 const app: express.Application = express();
@@ -252,10 +253,10 @@ const senierProjectParser = (
   );
 };
 
-type QueryElement = string | string[] | number[] | undefined;
+type QueryElement = string | string[] | undefined;
 interface SerachOptions {
-  technology?: number[];
-  plattform?: number[];
+  technology?: string[];
+  plattform?: string[];
   name?: string;
 }
 
@@ -303,8 +304,8 @@ const formatSenierProjectCardList = (
 
         if (!!options?.plattform) {
           if (
-            options.plattform.some((plattform: number) =>
-              data.plattform.includes(plattform as never)
+            options.plattform.some((plattform: string) =>
+              data.plattform.includes(Number(plattform) as never)
             )
           ) {
             return formatSenierProjectCardInfo(data, teamMember[data.id]);
@@ -313,8 +314,8 @@ const formatSenierProjectCardList = (
 
         if (!!options?.technology) {
           if (
-            options.technology.some((technology: number) =>
-              data.technology.includes(technology as never)
+            options.technology.some((technology: string) =>
+              data.technology.includes(Number(technology) as never)
             )
           ) {
             return formatSenierProjectCardInfo(data, teamMember[data.id]);
@@ -325,14 +326,12 @@ const formatSenierProjectCardList = (
   );
 };
 
-const formatPositionQuery = (positions: QueryElement): number[] | undefined => {
+const formatPositionQuery = (positions: QueryElement): string[] | undefined => {
   if (!positions) {
     return undefined;
   }
   if (!Array.isArray(positions)) {
-    positions = [Number(positions)];
-  } else {
-    positions = positions.map((data: string | number) => Number(data));
+    positions = [positions];
   }
 
   return positions;
@@ -364,10 +363,10 @@ app.get('/card', async (req: Request, res: Response) => {
         }),
     ]);
 
-    const plattformOption: number[] | undefined = formatPositionQuery(
+    const plattformOption: string[] | undefined = formatPositionQuery(
       plattform as QueryElement
     );
-    const technologyOption: number[] | undefined = formatPositionQuery(
+    const technologyOption: string[] | undefined = formatPositionQuery(
       technology as QueryElement
     );
     const options: SerachOptions = {
@@ -386,7 +385,6 @@ app.get('/card', async (req: Request, res: Response) => {
       senierProjectCardList: senierProject.filter(
         (data: SenierProject | undefined) => !!data
       ),
-      filterOption: options,
     });
   } catch (error) {
     return res.status(500).json({ message: '서버요청에 실패하였습니다.' });
