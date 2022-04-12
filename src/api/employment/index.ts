@@ -34,12 +34,14 @@ const knex: Knex = require('knex')({
 type QueryElement = string | string[] | undefined;
 
 interface EmploymentBody {
-  id?: string;
-  positionId?: number;
-  position?: string;
-  addressInformation?: string;
-  address?: string;
+  id: string;
+  userId: string;
+  positionId: number;
+  position: string;
+  addressInformation: string;
+  address: string;
   viewCount?: number;
+  region: string;
   companyName: string;
   title: string;
   content: string;
@@ -63,6 +65,7 @@ app.get('/', setViewCount, async (req: Request, res: Response) => {
       .select(
         'job_posting.id as id',
         'user_id as userId',
+        'company_name as companyName',
         'title',
         'content',
         'deadline',
@@ -77,6 +80,11 @@ app.get('/', setViewCount, async (req: Request, res: Response) => {
     if (!employmentInfo) {
       throw { code: 404, message: '없는 게시물입니다.' };
     }
+
+    const splitedAddress = JSON.parse(
+      employmentInfo.addressInformation
+    )?.address.split(' ') || ['주소', '없음'];
+    employmentInfo.region = `${splitedAddress[0]} ${splitedAddress[1]}`;
 
     employmentInfo.deadline = dayjs(employmentInfo.deadline).format(
       'YYYY.MM.DD'
@@ -95,7 +103,6 @@ app.get('/', setViewCount, async (req: Request, res: Response) => {
 app.get('/list', async (req: Request, res: Response) => {
   try {
     const { position, region } = req.query;
-    const filterOption: string[] = [];
     const EmploymentListQuery = knex('job_posting')
       .select(
         'job_posting.id',
@@ -109,14 +116,9 @@ app.get('/list', async (req: Request, res: Response) => {
       .innerJoin('job_category', 'job_posting.field', 'job_category.id')
       .where('deadline', '>=', `${dayjs().format('YYYYMMDD')}`);
 
-    const init: { query: Array<string>; options: Array<string> } = {
-      query: [],
-      options: [],
-    };
-
     const formatRegionsQuery = (
       regionIds: QueryElement
-    ): { query: string; options: string[] } | undefined => {
+    ): string | undefined => {
       if (!regionIds) {
         return undefined;
       }
@@ -124,15 +126,10 @@ app.get('/list', async (req: Request, res: Response) => {
         regionIds = [regionIds];
       }
 
-      const { query, options }: { query: string[]; options: string[] } =
-        regionIds.reduce((regionIds, regionId) => {
-          regionIds.options.push(REGION_MAP[regionId]);
-          regionIds.query.push(
-            `address_information like '{%"address"%:%"${REGION_MAP[regionId]}%'`
-          );
-          return regionIds;
-        }, init);
-      return { query: query.join(' or '), options };
+      const regionQuery: string[] = regionIds.map((regionId) => {
+        return `address_information like '{%"address"%:%"${REGION_MAP[regionId]}%'`;
+      });
+      return regionQuery.join(' or ');
     };
 
     const formatPositionQuery = (
@@ -152,7 +149,7 @@ app.get('/list', async (req: Request, res: Response) => {
     const positionFilterQuery = formatPositionQuery(position as QueryElement);
 
     if (!!regionFilterQuery) {
-      EmploymentListQuery.whereRaw(regionFilterQuery.query);
+      EmploymentListQuery.whereRaw(regionFilterQuery);
     }
     if (!!positionFilterQuery) {
       EmploymentListQuery.whereIn('job_posting.field', positionFilterQuery);
@@ -160,10 +157,9 @@ app.get('/list', async (req: Request, res: Response) => {
 
     const rawEmploymentList: EmploymentBody[] = await EmploymentListQuery;
     const jobPostingList = rawEmploymentList.map((employmentInfo) => {
-      const splitedAddress: string =
-        JSON.parse(employmentInfo.addressInformation as string)?.address.split(
-          ' '
-        ) || '';
+      const splitedAddress: string = JSON.parse(
+        employmentInfo.addressInformation
+      )?.address.split(' ') || ['주소', '없음'];
       const format = {
         id: employmentInfo.id,
         companyName: employmentInfo.companyName,
@@ -175,20 +171,8 @@ app.get('/list', async (req: Request, res: Response) => {
       return format;
     });
 
-    const positionFilter: { name: string }[] = await knex('job_category')
-      .select('name')
-      .whereIn('id', positionFilterQuery || []);
-
-    regionFilterQuery?.options.forEach((option) => {
-      filterOption.push(option);
-    });
-
     res.status(200).json({
       jobPostingList,
-      filterOption: [
-        ...filterOption,
-        ...positionFilter.map((position) => position.name),
-      ],
     });
   } catch (error: any) {
     if (!isNaN(error?.code) && !!error?.message) {
@@ -207,25 +191,31 @@ app.get(
       const email: string = res.locals.email;
       const id = req?.query?.id;
 
-      if (!id) {
+      if (!id || Array.isArray(id)) {
         throw { code: 400, message: '잘못된 요청입니다.' };
       }
 
-      const jobPosting: { applicant: string } = await knex('user')
-        .select('applicant')
-        .innerJoin('job_posting', 'user.id', 'job_posting.user_id')
-        .where({ 'user.id': email, 'job_posting.id': id })
+      const jobPosting: { userId: string; applicant: string } = await knex(
+        'job_posting'
+      )
+        .select('user_id as userId', 'applicant')
+        .where({ 'job_posting.id': id })
         .first();
 
       if (!jobPosting) {
-        throw { code: 403, message: '확인 하실 수 없습니다.' };
+        throw { code: 404, message: '리소스를 찾을 수 없습니다.' };
       }
 
       const applicantList: string[] = !!jobPosting.applicant
         ? JSON.parse(jobPosting.applicant)
         : [];
 
-      res.status(200).json({ applicantList });
+      const applicantInformation = {
+        ...(jobPosting.userId === email && { applicantList }),
+        applicantCount: applicantList.length,
+      };
+
+      res.status(200).json(applicantInformation);
     } catch (error: any) {
       if (!isNaN(error.code) && !!error.message) {
         return res.status(error.code).json({ message: error.message });
@@ -259,7 +249,7 @@ app.post(
           ],
           body
         ) ||
-        !isJsonString(address as string) ||
+        !isJsonString(address) ||
         !Number(deadline) ||
         dayjs(deadline, 'YYYYMMDD').diff(dayjs().format('YYYYMMDD')) <
           24 * 60 * 60 * 10 * 100
