@@ -33,20 +33,23 @@ const knex: Knex = require('knex')({
 
 type QueryElement = string | string[] | undefined;
 
-interface EmploymentBody {
+interface EmploymentModel {
   id: string;
   userId: string;
-  positionId: number;
   position: string;
   addressInformation: string;
-  address: string;
-  viewCount?: number;
-  region: string;
+  viewCount: string;
   companyName: string;
   title: string;
   content: string;
   image: string;
   deadline: string;
+}
+
+interface EmploymentBody extends EmploymentModel {
+  positionId?: number;
+  address?: string;
+  region?: string;
 }
 
 const isJsonString = (str: string) => {
@@ -58,9 +61,17 @@ const isJsonString = (str: string) => {
   }
 };
 
+const splitJsonAddress = (address: string): string[] => {
+  return JSON.parse(address)?.address.split(' ') || ['주소', '없음'];
+};
+
 app.get('/', setViewCount, async (req: Request, res: Response) => {
   try {
-    const id = req.query?.id as QueryElement;
+    if (typeof req.query?.id !== 'string') {
+      throw { code: 400, message: '잘못된 요청입니다.' };
+    }
+
+    const id = req.query?.id;
     const employmentInfo: EmploymentBody = await knex('job_posting')
       .select(
         'job_posting.id as id',
@@ -78,14 +89,13 @@ app.get('/', setViewCount, async (req: Request, res: Response) => {
       .first();
 
     if (!employmentInfo) {
-      throw { code: 404, message: '없는 게시물입니다.' };
+      throw { code: 404, message: '리소스를 찾을 수 없습니다.' };
     }
 
-    const splitedAddress = JSON.parse(
+    const splitedAddress: string[] = splitJsonAddress(
       employmentInfo.addressInformation
-    )?.address.split(' ') || ['주소', '없음'];
+    );
     employmentInfo.region = `${splitedAddress[0]} ${splitedAddress[1]}`;
-
     employmentInfo.deadline = dayjs(employmentInfo.deadline).format(
       'YYYY.MM.DD'
     );
@@ -116,60 +126,51 @@ app.get('/list', async (req: Request, res: Response) => {
       .innerJoin('job_category', 'job_posting.field', 'job_category.id')
       .where('deadline', '>=', `${dayjs().format('YYYYMMDD')}`);
 
-    const formatRegionsQuery = (
-      regionIds: QueryElement
-    ): string | undefined => {
-      if (!regionIds) {
-        return undefined;
-      }
-      if (!Array.isArray(regionIds)) {
-        regionIds = [regionIds];
-      }
-
-      const regionQuery: string[] = regionIds.map((regionId) => {
-        return `address_information like '{%"address"%:%"${REGION_MAP[regionId]}%'`;
-      });
-      return regionQuery.join(' or ');
-    };
-
-    const formatPositionQuery = (
-      positions: QueryElement
+    const queryStringToStringArray = (
+      queryString: QueryElement
     ): string[] | undefined => {
-      if (!positions) {
+      if (!queryString) {
         return undefined;
       }
-      if (!Array.isArray(positions)) {
-        positions = [positions];
+      if (!Array.isArray(queryString)) {
+        queryString = [queryString];
       }
 
-      return positions;
+      return queryString;
     };
 
-    const regionFilterQuery = formatRegionsQuery(region as QueryElement);
-    const positionFilterQuery = formatPositionQuery(position as QueryElement);
+    const regionFilterArray = queryStringToStringArray(region as QueryElement);
+    const positionFilterArray = queryStringToStringArray(
+      position as QueryElement
+    );
+    const regionFilterQuery = regionFilterArray
+      ?.map((regionId) => {
+        return `address_information like '{%"address"%:%"${REGION_MAP[regionId]}%'`;
+      })
+      .join(' or ');
 
     if (!!regionFilterQuery) {
       EmploymentListQuery.whereRaw(regionFilterQuery);
     }
-    if (!!positionFilterQuery) {
-      EmploymentListQuery.whereIn('job_posting.field', positionFilterQuery);
+    if (!!positionFilterArray && positionFilterArray.length !== 0) {
+      EmploymentListQuery.whereIn('job_posting.field', positionFilterArray);
     }
 
-    const rawEmploymentList: EmploymentBody[] = await EmploymentListQuery;
-    const jobPostingList = rawEmploymentList.map((employmentInfo) => {
-      const splitedAddress: string = JSON.parse(
-        employmentInfo.addressInformation
-      )?.address.split(' ') || ['주소', '없음'];
-      const format = {
-        id: employmentInfo.id,
-        companyName: employmentInfo.companyName,
-        image: employmentInfo.image,
-        position: employmentInfo.position,
-        region: `${splitedAddress[0]} ${splitedAddress[1]}`,
-        viewCount: employmentInfo.viewCount,
-      };
-      return format;
-    });
+    const rawEmploymentList: EmploymentModel[] = await EmploymentListQuery;
+    const jobPostingList = rawEmploymentList.map(
+      ({ id, companyName, image, position, addressInformation, viewCount }) => {
+        const splitedAddress = splitJsonAddress(addressInformation);
+        const jobPostingForm = {
+          id,
+          companyName,
+          image,
+          position,
+          viewCount,
+          region: `${splitedAddress[0]} ${splitedAddress[1]}`,
+        };
+        return jobPostingForm;
+      }
+    );
 
     res.status(200).json({
       jobPostingList,
@@ -249,7 +250,7 @@ app.post(
           ],
           body
         ) ||
-        !isJsonString(address) ||
+        !isJsonString(address as string) ||
         !Number(deadline) ||
         dayjs(deadline, 'YYYYMMDD').diff(dayjs().format('YYYYMMDD')) <
           24 * 60 * 60 * 10 * 100
@@ -305,7 +306,6 @@ app.post(
 
       const email: string = res.locals.email;
       const id: string = req.body.id;
-
       const [user, jobPosting]: [
         { id: string; is_student: number },
         { applicant: string }
@@ -318,15 +318,15 @@ app.post(
         throw { code: 403, message: '지원 하실 수 없습니다.' };
       }
 
-      const applicant = !!jobPosting.applicant
+      const applicants = !!jobPosting.applicant
         ? (JSON.parse(jobPosting?.applicant) as Array<string>)
         : [];
 
-      if (!applicant.find((userId: string) => userId === user.id)) {
-        applicant.push(user.id);
+      if (!applicants.find((userId: string) => userId === user.id)) {
+        applicants.push(user.id);
         await knex('job_posting')
           .where({ id })
-          .update('applicant', `${JSON.stringify(applicant)}`);
+          .update('applicant', `${JSON.stringify(applicants)}`);
       }
 
       res.status(201).json({ isApplied: true });
