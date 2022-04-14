@@ -100,16 +100,33 @@ app.post(
         return JSON.parse(JSON.stringify(body));
       };
 
-      let body: SenierProject = multerStringFiyValueParsing(req.body);
+      const body: SenierProject = multerStringFiyValueParsing(req.body);
 
       if (!body?.teamMember?.length) {
         throw { code: 400, message: '팀원은 한명이상이 필요합니다.' };
       }
 
+      const checkTeamMemberRequireProperties = (
+        teamMember: SenierProjectTeamMember[]
+      ): boolean => {
+        let isResult = false;
+        teamMember.forEach((member: any) => {
+          if (
+            !checkRequiredProperties(
+              ['name', 'uniID', 'introduction'],
+              body.teamMember[0]
+            )
+          ) {
+            isResult = true;
+          }
+        });
+
+        return isResult;
+      };
+
       if (
-        !checkRequiredProperties(
-          ['name', 'uniID', 'introduction'],
-          body.teamMember[0]
+        checkTeamMemberRequireProperties(
+          body.teamMember as SenierProjectTeamMember[]
         )
       ) {
         throw { code: 400, message: '잘못된 요청입니다,' };
@@ -133,10 +150,7 @@ app.post(
         .first();
 
       if (!isAdmin) {
-        Promise.reject({
-          code: 403,
-          message: '관리자 계정이 아닙니다.',
-        });
+        throw { code: 403, message: '관리자 계정이 아닙니다.' };
       }
 
       const files: { [fieldname: string]: Express.Multer.File[] } =
@@ -149,16 +163,16 @@ app.post(
         path: string
       ): Promise<AWS.S3.ManagedUpload.SendData[]> => {
         const s3UploadResultList: Promise<AWS.S3.ManagedUpload.SendData>[] =
-          Object.values(files).map(async (file: Express.Multer.File[]) => {
-            if (!(file[0].fieldname == 'projectDesign')) {
-              file[0].buffer = await sharp(file[0].buffer)
+          Object.values(files).map(async ([file, ...ignore]) => {
+            if (!(file.fieldname == 'projectDesign')) {
+              file.buffer = await sharp(file.buffer)
                 .resize({ fit: 'fill', width: 1080, height: 790 })
                 .toBuffer();
             }
 
             return uploadFileToS3(
-              file[0].buffer,
-              `test/${path}/${file[0].originalname}`
+              file.buffer,
+              `test/${path}/${file.originalname}`
             );
           });
 
@@ -195,17 +209,17 @@ app.post(
         files,
         s3UploadResult
       );
-      const setTeamMember = async (
+      const setTeamMember = (
         teamMember: SenierProjectTeamMember[] = [],
         id: string = ''
-      ): Promise<void> => {
-        for (const member of teamMember) {
+      ): Promise<number[]>[] => {
+        return teamMember.map(async (member) => {
           const email: { id: string } = await knex('user')
             .select('id')
             .where({ is_student: 1, uni_id: member.uniID })
             .first();
 
-          await knex('team_member').insert({
+          return knex('team_member').insert({
             id,
             uni_id: member.uniID,
             name: member.name,
@@ -213,7 +227,7 @@ app.post(
             profile_image: member.profileImageURL,
             ...(!!email && { email: email.id }),
           });
-        }
+        });
       };
 
       await Promise.all([
@@ -233,7 +247,11 @@ app.post(
       ]);
 
       res.status(201).json({ isPosted: true });
-    } catch (error) {
+    } catch (error: any) {
+      if (!isNaN(error.code) && !!error.message) {
+        return res.status(error.code).json({ message: error.message });
+      }
+
       res.status(500).json({ message: '서버요청에 실패하였습니다.' });
     }
   }
@@ -290,7 +308,7 @@ app.get('/card', async (req: Request, res: Response) => {
         []
       );
     };
-    let [senierProject, teamMember]: [
+    const [senierProject, teamMember]: [
       senierProject: SenierProject[] | (SenierProject | undefined)[],
       teamMember: { [key: string]: string[] }
     ] = await Promise.all([
@@ -314,6 +332,7 @@ app.get('/card', async (req: Request, res: Response) => {
           return formatTeamMember(teamMember);
         }),
     ]);
+
     const formatStringToStringQuery = (
       positions: QueryElement
     ): string[] | undefined => {
@@ -359,20 +378,18 @@ app.get('/card', async (req: Request, res: Response) => {
 
       return senierProject;
     };
-    const formatSenierProjectCardList = (
+    const formatSenierProjectCardList = async (
       senierProject: SenierProject[],
       teamMember: { [key: string]: string[] },
       options: SerachOptions
-    ): Promise<(SenierProject | undefined)[]> => {
-      return Promise.all(
+    ) => {
+      const senierProjectCardList = await Promise.all(
         senierProject.map((data: SenierProject) => {
           if (!Object.keys(options)?.length) {
             return formatSenierProjectCardInfo(data, teamMember[data.id]);
           } else {
-            if (!!options?.name) {
-              if (teamMember[data.id].includes(options.name)) {
-                return formatSenierProjectCardInfo(data, teamMember[data.id]);
-              }
+            if (teamMember[data.id].includes(options?.name || '')) {
+              return formatSenierProjectCardInfo(data, teamMember[data.id]);
             }
 
             if (!!options?.plattform) {
@@ -397,19 +414,19 @@ app.get('/card', async (req: Request, res: Response) => {
           }
         })
       );
+
+      return senierProjectCardList.filter(
+        (data: SenierProject | undefined) => !!data
+      );
     };
 
-    senierProject = await formatSenierProjectCardList(
+    const senierProjectCardList = await formatSenierProjectCardList(
       senierProject as SenierProject[],
       teamMember,
       options
     );
 
-    res.status(200).json({
-      senierProjectCardList: senierProject.filter(
-        (data: SenierProject | undefined) => !!data
-      ),
-    });
+    res.status(200).json({ senierProjectCardList });
   } catch (error: any) {
     if (!isNaN(error.code) && !!error.message) {
       return res.status(error.code).json({ message: error.message });
