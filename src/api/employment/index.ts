@@ -65,50 +65,56 @@ const splitJsonAddress = (address: string): string[] => {
   return JSON.parse(address)?.address.split(' ') || ['주소', '없음'];
 };
 
-app.get('/', setViewCount, async (req: Request, res: Response) => {
-  try {
-    if (typeof req.query?.id !== 'string') {
-      throw { code: 400, message: '잘못된 요청입니다.' };
+app.get(
+  '/',
+  (req: Request, res: Response, next: NextFunction) => {
+    setViewCount(req, res, next, 'job_postion');
+  },
+  async (req: Request, res: Response) => {
+    try {
+      if (typeof req.query?.id !== 'string') {
+        throw { code: 400, message: '잘못된 요청입니다.' };
+      }
+
+      const id = req.query?.id;
+      const employmentInfo: EmploymentBody = await knex('job_posting')
+        .select(
+          'job_posting.id as id',
+          'user_id as userId',
+          'company_name as companyName',
+          'title',
+          'content',
+          'deadline',
+          'image',
+          'job_category.name as position',
+          'address_information as addressInformation'
+        )
+        .innerJoin('job_category', 'job_category.id', 'field')
+        .where({ 'job_posting.id': id })
+        .first();
+
+      if (!employmentInfo) {
+        throw { code: 404, message: '리소스를 찾을 수 없습니다.' };
+      }
+
+      const splitedAddress: string[] = splitJsonAddress(
+        employmentInfo.addressInformation
+      );
+      employmentInfo.region = `${splitedAddress[0]} ${splitedAddress[1]}`;
+      employmentInfo.deadline = dayjs(employmentInfo.deadline).format(
+        'YYYY.MM.DD'
+      );
+
+      res.status(200).json(employmentInfo);
+    } catch (error: any) {
+      if (!isNaN(error.code) && !!error.message) {
+        return res.status(error.code).json({ message: error.message });
+      }
+
+      res.status(500).json({ message: '서버요청에 실패하였습니다.' });
     }
-
-    const id = req.query?.id;
-    const employmentInfo: EmploymentBody = await knex('job_posting')
-      .select(
-        'job_posting.id as id',
-        'user_id as userId',
-        'company_name as companyName',
-        'title',
-        'content',
-        'deadline',
-        'image',
-        'job_category.name as position',
-        'address_information as addressInformation'
-      )
-      .innerJoin('job_category', 'job_category.id', 'field')
-      .where({ 'job_posting.id': id })
-      .first();
-
-    if (!employmentInfo) {
-      throw { code: 404, message: '리소스를 찾을 수 없습니다.' };
-    }
-
-    const splitedAddress: string[] = splitJsonAddress(
-      employmentInfo.addressInformation
-    );
-    employmentInfo.region = `${splitedAddress[0]} ${splitedAddress[1]}`;
-    employmentInfo.deadline = dayjs(employmentInfo.deadline).format(
-      'YYYY.MM.DD'
-    );
-
-    res.status(200).json(employmentInfo);
-  } catch (error: any) {
-    if (!isNaN(error.code) && !!error.message) {
-      return res.status(error.code).json({ message: error.message });
-    }
-
-    res.status(500).json({ message: '서버요청에 실패하였습니다.' });
   }
-});
+);
 
 app.get('/list', async (req: Request, res: Response) => {
   try {

@@ -27,30 +27,21 @@ const knex: Knex = require('knex')({
 export const setViewCount = async (
   req: Request,
   res: Response,
-  next: NextFunction
+  next: NextFunction,
+  tableName: string
 ): Promise<Response<any, Record<string, any>> | undefined> => {
   const id: string = req.query.id as string;
 
-  if (!Object.keys(req).length || !Object.keys(res).length || !id) {
+  if (!id) {
     return res.status(400).json({ message: '잘못된 요청입니다.' });
   }
 
-  const viewToken: string[] = !!req?.cookies?.view
-    ? JSON.parse(req.cookies.view)
-    : [];
+  const viewToken: string[] = JSON.parse(req?.cookies?.view || '[]');
 
   if (viewToken.includes(id)) {
     next();
   } else {
     try {
-      let tableName = '';
-
-      if (req.baseUrl.split('/').includes('senier-project')) {
-        tableName = 'senier_project';
-      } else if (req.baseUrl.split('/').includes('employment')) {
-        tableName = 'job_posting';
-      }
-
       const { viewCount }: { viewCount: number } = await knex(tableName)
         .select('view_count as viewCount')
         .where({ id })
@@ -62,8 +53,8 @@ export const setViewCount = async (
 
       viewToken.push(id);
 
-      const currentDate = dayjs().format('YYYY-MM-DD');
-      const maxAge =
+      const currentDate: string = dayjs().format('YYYY-MM-DD');
+      const maxAge: number =
         dayjs(`${currentDate} 23:59:59`).valueOf() - dayjs().valueOf();
 
       res.cookie('view', JSON.stringify(viewToken), {
