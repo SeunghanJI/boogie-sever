@@ -2,7 +2,7 @@ import express, { Request, Response, NextFunction } from 'express';
 import cookieParser from 'cookie-parser';
 import API from './api/api';
 const app: express.Application = express();
-const port: number = 3000;
+const port: number = 3001;
 
 app.use(express.json());
 app.use(cookieParser());
