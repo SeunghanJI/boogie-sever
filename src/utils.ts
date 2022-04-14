@@ -1,4 +1,4 @@
-import { realpathSync } from 'fs';
+import { v4 as uuidv4 } from 'uuid';
 
 /*
     해당 Object에 필수로 하는 key값이 존재하는지 검사
@@ -8,8 +8,9 @@ import { realpathSync } from 'fs';
 */
 export const checkRequiredProperties = (
   keys: string[],
-  data: {} = {}
+  data: any = {}
 ): boolean => {
+  console.log();
   if (!Array.isArray(keys) || !keys.length || !Object.keys(data).length) {
     return false;
   }
@@ -20,10 +21,10 @@ export const checkRequiredProperties = (
 
 /*
     해당 data의 value중 비어있는 값이 존재하는지 검사
-    @param {Object} data => 버어있는 vlaue가 존재하는지 검사 할 오브젝트
+    @param {Object} data => 버어있는 value가 존재하는지 검사 할 오브젝트
     @returns boolean => 비어있는 값이 없으면 true 아니면 fasle
 */
-export const checkObjectValueEmpty = (data: {} = {}): boolean => {
+export const checkObjectValueEmpty = (data: any = {}): boolean => {
   if (!Object.keys(data).length) {
     return false;
   }
@@ -32,4 +33,11 @@ export const checkObjectValueEmpty = (data: {} = {}): boolean => {
     (value) => value === undefined || value === null || value === ''
   );
   return !isSatisfied;
+};
+
+/*
+    16자리의 램덤id를 리턴
+*/
+export const getUniqueID = (): string => {
+  return uuidv4().split('-').join('').substring(0, 16);
 };
