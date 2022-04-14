@@ -3,11 +3,9 @@ import { Knex } from 'knex';
 import crypto from 'crypto';
 import { generatedJwtToken } from '../../token/index';
 import { checkObjectValueEmpty } from '../../utils';
-import nodemailer from 'nodemailer';
 import dayjs from 'dayjs';
+import sendMail from '../../mail/index';
 import { verifyAccessToken } from '../../token/index';
-import isLeapYear from 'dayjs/plugin/isLeapYear';
-dayjs.extend(isLeapYear);
 import dotenv from 'dotenv';
 dotenv.config();
 
@@ -45,36 +43,6 @@ const createCode = (length: number): string => {
   return code;
 };
 
-const sendMail = (toEmail: string = '', code: string = '') => {
-  const mailConfig = {
-    service: 'Naver',
-    host: 'smtp.naver.com',
-    port: 587,
-    auth: {
-      user: process.env.NODEMAILER_USER,
-      pass: process.env.NODEMAILER_PASS,
-    },
-  };
-
-  const message = {
-    from: process.env.NODEMAILER_USER,
-    to: toEmail,
-    subject: '이메일 인증',
-    html: `<p> 이메일 인증번호는 ${code} 입니다. </p>`,
-  };
-
-  const transporter = nodemailer.createTransport(mailConfig);
-
-  return new Promise((resolve, reject) => {
-    transporter.sendMail(message, (err, info) => {
-      if (err) {
-        reject();
-      }
-      resolve({ isSend: true });
-    });
-  });
-};
-
 const verifyEmail = (email: string = ''): boolean => {
   const regularEmail: RegExp =
     /^([0-9a-zA-Z_.-]+)@([0-9a-zA-Z_-]+)(\.[0-9a-zA-Z_-]+){1,3}$/;
@@ -99,13 +67,18 @@ app.post('/code/email', (req: Request, res: Response) => {
 
   const authCode: string = createCode(8);
   const currentDate: string = getCurrentDate();
+  const mailOptions = {
+    toEmail: id,
+    title: '이메일 인증',
+    content: `<p> 이메일 인증번호는 ${authCode} 입니다. </p>`,
+  };
 
   knex('auth')
     .delete()
     .where({ email: id, is_auth: 0 })
     .then((ignore) => {
       return Promise.all([
-        sendMail(id, authCode),
+        sendMail(mailOptions),
         knex('auth').insert({
           email: id,
           auth_code: authCode,
