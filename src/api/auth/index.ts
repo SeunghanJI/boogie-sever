@@ -2,7 +2,7 @@ import express, { Request, Response, NextFunction } from 'express';
 import { Knex } from 'knex';
 import crypto from 'crypto';
 import { generatedJwtToken } from '../../token/index';
-import { checkObjectValueEmpty } from '../../utils';
+import { checkObjectValueEmpty, verifyEmail } from '../../utils';
 import dayjs from 'dayjs';
 import sendMail from '../../mail/index';
 import { verifyAccessToken } from '../../token/index';
@@ -41,13 +41,6 @@ const createCode = (length: number): string => {
   }
 
   return code;
-};
-
-const verifyEmail = (email: string = ''): boolean => {
-  const regularEmail: RegExp =
-    /^([0-9a-zA-Z_.-]+)@([0-9a-zA-Z_-]+)(\.[0-9a-zA-Z_-]+){1,3}$/;
-
-  return regularEmail.test(email);
 };
 
 const getCurrentDate = (): string => {
