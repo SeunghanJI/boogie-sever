@@ -3,9 +3,8 @@ import { Knex } from 'knex';
 import multer from 'multer';
 import dotenv from 'dotenv';
 import sharp from 'sharp';
-import { v4 as uuidv4 } from 'uuid';
 import { uploadFileToS3 } from '../../s3/index';
-import { checkRequiredProperties } from '../../utils';
+import { checkRequiredProperties, getUniqueID } from '../../utils';
 import { setViewCount } from '../../view/index';
 import { verifyRefreshToken } from '../../token/index';
 dotenv.config();
@@ -157,7 +156,6 @@ app.post(
         req.files as {
           [fieldname: string]: Express.Multer.File[];
         };
-      const uniqueID: string = uuidv4().split('-').join('').substring(0, 16);
       const s3UploadFromBinary = async (
         files: { [fieldname: string]: Express.Multer.File[] },
         path: string
@@ -230,6 +228,8 @@ app.post(
         });
       };
 
+      const uniqueID: string = getUniqueID();
+
       await Promise.all([
         setTeamMember(
           senierProject.teamMember as SenierProjectTeamMember[],
@@ -241,8 +241,20 @@ app.post(
           link: JSON.stringify(senierProject.link),
           group_name: senierProject.groupName,
           project_design: senierProject.projectDesign,
-          plattform: JSON.stringify(senierProject.plattform),
-          technology: JSON.stringify(senierProject.technology),
+          plattform: JSON.stringify(
+            (senierProject.plattform as number[]).sort(
+              (a: number, b: number) => {
+                return a - b;
+              }
+            )
+          ),
+          technology: JSON.stringify(
+            (senierProject.technology as number[]).sort(
+              (a: number, b: number) => {
+                return a - b;
+              }
+            )
+          ),
         }),
       ]);
 
@@ -257,10 +269,10 @@ app.post(
   }
 );
 
-type QueryElement = string | string[] | undefined;
+type QueryElement = string | number | string[] | number[] | null;
 interface SerachOptions {
-  technology?: string[];
-  plattform?: string[];
+  technology?: number[];
+  plattform?: number[];
   name?: string;
 }
 
@@ -308,110 +320,109 @@ app.get('/card', async (req: Request, res: Response) => {
         []
       );
     };
+    const formatSearchOption = (SerachOption: QueryElement) => {
+      if (!SerachOption) {
+        return null;
+      }
+
+      if (Array.isArray(SerachOption)) {
+        SerachOption = (SerachOption as string[]).map((value: string) => {
+          return Number(value);
+        });
+      }
+
+      if (!Array.isArray(SerachOption)) {
+        SerachOption = [Number(SerachOption)];
+      }
+
+      return `%${[...SerachOption]
+        .sort((a: number, b: number) => {
+          return a - b;
+        })
+        .join('%')}%`;
+    };
+
+    const plattformOption = formatSearchOption(plattform as QueryElement);
+    const technologyOption = formatSearchOption(technology as QueryElement);
+
+    const getSenierProject = knex('senier_project')
+      .select(
+        'id',
+        'group_name as groupName',
+        'plattform',
+        'technology',
+        'view_count as viewCount'
+      )
+      .where({ year })
+      .orderByRaw('RAND()');
+    const getTeamMember = knex('team_member')
+      .select('team_member.id', 'team_member.name')
+      .innerJoin('senier_project', 'senier_project.id', 'team_member.id')
+      .where({ 'senier_project.year': year });
+
+    if (!!name) {
+      const senierProjectID = await knex('team_member')
+        .select('id')
+        .where({ name });
+
+      getSenierProject.whereIn(
+        'id',
+        senierProjectID.map((data: any) => data.id)
+      );
+      getTeamMember.whereIn(
+        'senier_project.id',
+        senierProjectID.map((data: any) => data.id)
+      );
+    }
+
+    if (!!plattformOption) {
+      getSenierProject.whereLike('plattform', plattformOption);
+      getTeamMember.whereLike('senier_project.plattform', plattformOption);
+    }
+
+    if (!!technologyOption) {
+      getSenierProject.whereLike('technology', technologyOption);
+      getTeamMember.whereLike('senier_project.technology', technologyOption);
+    }
+
     const [senierProject, teamMember]: [
       senierProject: SenierProject[] | (SenierProject | undefined)[],
       teamMember: { [key: string]: string[] }
     ] = await Promise.all([
-      knex('senier_project')
-        .select(
-          'id',
-          'group_name as groupName',
-          'plattform',
-          'technology',
-          'view_count as viewCount'
-        )
-        .where({ year })
-        .then((senierProject: SenierProject[]) => {
-          return senierProjectParser(senierProject);
-        }),
-      knex('team_member')
-        .select('team_member.id', 'team_member.name')
-        .innerJoin('senier_project', 'senier_project.id', 'team_member.id')
-        .where({ 'senier_project.year': year })
-        .then((teamMember: { id: string; name: string }[]) => {
-          return formatTeamMember(teamMember);
-        }),
+      getSenierProject.then((senierProject: SenierProject[]) => {
+        return senierProjectParser(senierProject);
+      }),
+      getTeamMember.then((teamMember: { id: string; name: string }[]) => {
+        return formatTeamMember(teamMember);
+      }),
     ]);
 
-    const formatStringToStringQuery = (
-      positions: QueryElement
-    ): string[] | undefined => {
-      if (!positions) {
-        return undefined;
-      }
-
-      return [...positions];
-    };
-    const plattformOption: string[] | undefined = formatStringToStringQuery(
-      plattform as QueryElement
-    );
-    const technologyOption: string[] | undefined = formatStringToStringQuery(
-      technology as QueryElement
-    );
-    const options: SerachOptions = {
-      ...(!!name && { name: name as string }),
-      ...(!!plattformOption && { plattform: plattformOption }),
-      ...(!!technologyOption && { technology: technologyOption }),
-    };
-    const formatSenierProjectCardInfo = async (
-      senierProject: SenierProject,
-      teamMember: string[]
-    ): Promise<SenierProject> => {
-      const [plattform, technology] = await Promise.all([
-        knex('plattform')
-          .select('name')
-          .whereIn('id', senierProject.plattform as number[]),
-        knex('technology')
-          .select('name')
-          .whereIn('id', senierProject.technology as number[]),
-      ]);
-
-      senierProject.teamMember = teamMember.join(', ');
-      senierProject.plattform = plattform
-        .map((data) => {
-          return data.name;
-        })
-        .join(', ');
-      senierProject.technology = technology.map((data) => {
-        return data.name;
-      });
-
-      return senierProject;
-    };
     const formatSenierProjectCardList = async (
       senierProject: SenierProject[],
-      teamMember: { [key: string]: string[] },
-      options: SerachOptions
+      teamMember: { [key: string]: string[] }
     ) => {
       const senierProjectCardList = await Promise.all(
-        senierProject.map((data: SenierProject) => {
-          if (!Object.keys(options)?.length) {
-            return formatSenierProjectCardInfo(data, teamMember[data.id]);
-          } else {
-            if (teamMember[data.id].includes(options?.name || '')) {
-              return formatSenierProjectCardInfo(data, teamMember[data.id]);
-            }
+        senierProject.map(async (data: SenierProject) => {
+          const [plattform, technology] = await Promise.all([
+            knex('plattform')
+              .select('name')
+              .whereIn('id', data.plattform as number[]),
+            knex('technology')
+              .select('name')
+              .whereIn('id', data.technology as number[]),
+          ]);
 
-            if (!!options?.plattform) {
-              if (
-                options.plattform.some((plattform: string) =>
-                  data.plattform.includes(Number(plattform) as never)
-                )
-              ) {
-                return formatSenierProjectCardInfo(data, teamMember[data.id]);
-              }
-            }
+          data.teamMember = teamMember[data.id].join(', ');
+          data.plattform = plattform
+            .map((data) => {
+              return data.name;
+            })
+            .join(', ');
+          data.technology = technology.map((data) => {
+            return data.name;
+          });
 
-            if (!!options?.technology) {
-              if (
-                options.technology.some((technology: string) =>
-                  data.technology.includes(Number(technology) as never)
-                )
-              ) {
-                return formatSenierProjectCardInfo(data, teamMember[data.id]);
-              }
-            }
-          }
+          return data;
         })
       );
 
@@ -422,8 +433,7 @@ app.get('/card', async (req: Request, res: Response) => {
 
     const senierProjectCardList = await formatSenierProjectCardList(
       senierProject as SenierProject[],
-      teamMember,
-      options
+      teamMember
     );
 
     res.status(200).json({ senierProjectCardList });
@@ -538,3 +548,6 @@ app.get('/announced', async (req: Request, res: Response) => {
 });
 
 export default app;
+function join(arg0: string): any {
+  throw new Error('Function not implemented.');
+}
