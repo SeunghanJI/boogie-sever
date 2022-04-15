@@ -4,8 +4,9 @@ import dotenv from 'dotenv';
 import { Knex } from 'knex';
 import sharp from 'sharp';
 import dayjs from 'dayjs';
+import sendMail from '../../mail/index';
 import { v4 as uuidv4 } from 'uuid';
-import { checkRequiredProperties } from '../../utils';
+import { checkRequiredProperties, verifyEmail, getUniqueID } from '../../utils';
 import { verifyAccessToken } from '../../token/index';
 import { REGION_MAP } from '../category/index';
 import { uploadFileToS3 } from '../../s3';
@@ -97,10 +98,10 @@ app.get(
         throw { code: 404, message: '리소스를 찾을 수 없습니다.' };
       }
 
-      const splitedAddress: string[] = splitJsonAddress(
+      const [province, city]: string[] = splitJsonAddress(
         employmentInfo.addressInformation
       );
-      employmentInfo.region = `${splitedAddress[0]} ${splitedAddress[1]}`;
+      employmentInfo.region = `${province} ${city}`;
       employmentInfo.deadline = dayjs(employmentInfo.deadline).format(
         'YYYY.MM.DD'
       );
@@ -134,15 +135,12 @@ app.get('/list', async (req: Request, res: Response) => {
 
     const queryStringToStringArray = (
       queryString: QueryElement
-    ): string[] | undefined => {
+    ): string[] | null => {
       if (!queryString) {
-        return undefined;
-      }
-      if (!Array.isArray(queryString)) {
-        queryString = [queryString];
+        return null;
       }
 
-      return queryString;
+      return [...([queryString] as string[])];
     };
 
     const regionFilterArray = queryStringToStringArray(region as QueryElement);
@@ -150,37 +148,36 @@ app.get('/list', async (req: Request, res: Response) => {
       position as QueryElement
     );
     const regionFilterQuery = regionFilterArray
-      ?.map((regionId) => {
-        return `address_information like '{%"address"%:%"${REGION_MAP[regionId]}%'`;
-      })
+      ?.map(
+        (regionId) =>
+          `address_information like '{%"address"%:%"${REGION_MAP[regionId]}%'`
+      )
       .join(' or ');
 
     if (!!regionFilterQuery) {
       EmploymentListQuery.whereRaw(regionFilterQuery);
     }
-    if (!!positionFilterArray && positionFilterArray.length !== 0) {
+    if (!!positionFilterArray && positionFilterArray.length) {
       EmploymentListQuery.whereIn('job_posting.field', positionFilterArray);
     }
 
     const rawEmploymentList: EmploymentModel[] = await EmploymentListQuery;
     const jobPostingList = rawEmploymentList.map(
       ({ id, companyName, image, position, addressInformation, viewCount }) => {
-        const splitedAddress = splitJsonAddress(addressInformation);
+        const [province, city]: string[] = splitJsonAddress(addressInformation);
         const jobPostingForm = {
           id,
           companyName,
           image,
           position,
           viewCount,
-          region: `${splitedAddress[0]} ${splitedAddress[1]}`,
+          region: `${province} ${city}`,
         };
         return jobPostingForm;
       }
     );
 
-    res.status(200).json({
-      jobPostingList,
-    });
+    res.status(200).json({ jobPostingList });
   } catch (error: any) {
     if (!isNaN(error?.code) && !!error?.message) {
       return res.status(error.code).json({ message: error.message });
@@ -198,7 +195,7 @@ app.get(
       const email: string = res.locals.email;
       const id = req?.query?.id;
 
-      if (!id || Array.isArray(id)) {
+      if (!id) {
         throw { code: 400, message: '잘못된 요청입니다.' };
       }
 
@@ -213,9 +210,7 @@ app.get(
         throw { code: 404, message: '리소스를 찾을 수 없습니다.' };
       }
 
-      const applicantList: string[] = !!jobPosting.applicant
-        ? JSON.parse(jobPosting.applicant)
-        : [];
+      const applicantList: string[] = JSON.parse(jobPosting?.applicant || '[]');
 
       const applicantInformation = {
         ...(jobPosting.userId === email && { applicantList }),
@@ -243,6 +238,7 @@ app.post(
       const body: EmploymentBody = JSON.parse(JSON.stringify(req.body));
       const { companyName, title, content, address, deadline, positionId } =
         body;
+      const ONE_DAY_TIME = 24 * 60 * 60 * 10 * 100;
 
       if (
         !checkRequiredProperties(
@@ -259,7 +255,7 @@ app.post(
         !isJsonString(address as string) ||
         !Number(deadline) ||
         dayjs(deadline, 'YYYYMMDD').diff(dayjs().format('YYYYMMDD')) <
-          24 * 60 * 60 * 10 * 100
+          ONE_DAY_TIME
       ) {
         throw { code: 400, message: '잘못된 요청입니다.' };
       }
@@ -279,7 +275,7 @@ app.post(
         title,
         content,
         deadline,
-        id: uuidv4().split('-').join('').substring(0, 16),
+        id: getUniqueID(),
         user_id: user.id,
         company_name: companyName,
         image: data.Location,
@@ -313,26 +309,44 @@ app.post(
       const email: string = res.locals.email;
       const id: string = req.body.id;
       const [user, jobPosting]: [
-        { id: string; is_student: number },
-        { applicant: string }
+        { id: string; name: string; is_student: number },
+        { userId: string; applicant: string }
       ] = await Promise.all([
-        knex('user').select('id', 'is_student').where({ id: email }).first(),
-        knex('job_posting').select('applicant').where({ id }).first(),
+        knex('user')
+          .select('id', 'name', 'is_student')
+          .where({ id: email })
+          .first(),
+        knex('job_posting')
+          .select('user_id as userId', 'applicant')
+          .where({ id })
+          .first(),
       ]);
 
       if (!user.is_student) {
         throw { code: 403, message: '지원 하실 수 없습니다.' };
       }
 
-      const applicants = !!jobPosting.applicant
-        ? (JSON.parse(jobPosting?.applicant) as Array<string>)
-        : [];
+      const applicants: string[] = JSON.parse(jobPosting?.applicant || '[]');
 
       if (!applicants.find((userId: string) => userId === user.id)) {
         applicants.push(user.id);
-        await knex('job_posting')
-          .where({ id })
-          .update('applicant', `${JSON.stringify(applicants)}`);
+        const applicantPromiseAll: Array<any> = [
+          knex('job_posting')
+            .where({ id })
+            .update('applicant', `${JSON.stringify(applicants)}`),
+        ];
+
+        if (verifyEmail(jobPosting.userId)) {
+          applicantPromiseAll.push(
+            sendMail({
+              toEmail: jobPosting.userId,
+              title: 'Boogie On & On 채용공고 지원 메일',
+              content: `귀하의 회사에 ${user.name}(${user.id})님이 지원하였습니다.`,
+            })
+          );
+        }
+
+        await Promise.all(applicantPromiseAll);
       }
 
       res.status(201).json({ isApplied: true });
