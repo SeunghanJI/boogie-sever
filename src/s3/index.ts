@@ -22,17 +22,11 @@ export const uploadFileToS3 = (
   fileBuffer: Buffer,
   fileKey: string
 ): Promise<AWS.S3.ManagedUpload.SendData> => {
-  return new Promise((resolve, reject) => {
-    const params = {
-      Bucket: S3_BUCKET_NAME,
-      Key: fileKey,
-      Body: fileBuffer,
-    };
-    s3.upload(params, (error: Error, data: AWS.S3.ManagedUpload.SendData) => {
-      if (error) {
-        reject({ code: 500, message: '파일 업로드에 실패하였습니다.' });
-      }
-      resolve(data);
-    });
-  });
+  const params = {
+    Bucket: S3_BUCKET_NAME,
+    Key: fileKey,
+    Body: fileBuffer,
+  };
+
+  return s3.upload(params).promise();
 };
