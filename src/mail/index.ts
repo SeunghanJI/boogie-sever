@@ -30,15 +30,7 @@ const sendMail = ({
   };
 
   const transporter = nodemailer.createTransport(mailConfig);
-
-  return new Promise((resolve, reject) => {
-    transporter.sendMail(message, (err, info) => {
-      if (err) {
-        reject({ code: 500, message: '메일 발송에 실패 하였습니다.' });
-      }
-      resolve(info);
-    });
-  });
+  return transporter.sendMail(message);
 };
 
 export default sendMail;
