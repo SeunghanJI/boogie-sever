@@ -50,7 +50,117 @@ interface SenierProject {
   technology: string | number[];
   projectDesign: string;
   viewCount: number;
+  [propsName: string]: any;
 }
+
+interface PostSenierProject extends SenierProject {
+  teamMember: SenierProjectTeamMember[];
+}
+
+const multerStringFiyValueParsing = (
+  keys: string[],
+  body: {
+    [key: string]: string;
+  }
+): SenierProject => {
+  keys.forEach((key: string) => {
+    body[key] = JSON.parse(body[key]);
+  });
+
+  return JSON.parse(JSON.stringify(body));
+};
+
+const checkTeamMembersRequireProperties = (
+  teamMembers: SenierProjectTeamMember[]
+): boolean => {
+  return !teamMembers.every((member: SenierProjectTeamMember) =>
+    checkRequiredProperties(['name', 'uniID', 'introduction'], member)
+  );
+};
+
+const sortAsc = (a: number, b: number) => {
+  return a - b;
+};
+
+const setTeamMembers = (
+  teamMembers: SenierProjectTeamMember[] = [],
+  id: string = ''
+): Promise<number[]>[] => {
+  return teamMembers.map(async (member) => {
+    const email: { id: string } = await knex('user')
+      .select('id')
+      .where({ is_student: 1, uni_id: member.uniID })
+      .first();
+
+    return knex('team_member').insert({
+      id,
+      uni_id: member.uniID,
+      name: member.name,
+      introduction: member.introduction,
+      profile_image: member.profileImageURL,
+      ...(!!email && { email: email.id }),
+    });
+  });
+};
+
+const s3UploadFromBinary = async (
+  files: { [fieldname: string]: Express.Multer.File[] },
+  path: string
+): Promise<AWS.S3.ManagedUpload.SendData[]> => {
+  const s3UploadResultList: Promise<AWS.S3.ManagedUpload.SendData>[] =
+    Object.values(files).map(async ([file]) => {
+      const fileBuffer = await (async () => {
+        if (!(file.fieldname == 'projectDesign')) {
+          return await sharp(file.buffer)
+            .resize({ fit: 'fill', width: 1080, height: 790 })
+            .toBuffer();
+        }
+
+        return file.buffer;
+      })();
+
+      return uploadFileToS3(fileBuffer, `${path}/${file.originalname}`);
+    });
+
+  return Promise.all(s3UploadResultList);
+};
+
+const formatSenierProject = (
+  senierProject: PostSenierProject,
+  files: { [fieldname: string]: Express.Multer.File[] },
+  s3UploadResult: AWS.S3.ManagedUpload.SendData[]
+): SenierProject => {
+  Object.values(files).forEach((file: Express.Multer.File[], index: number) => {
+    if (file[0].fieldname === 'projectDesign') {
+      senierProject.projectDesign = s3UploadResult[index].Location;
+    } else {
+      senierProject.teamMember[
+        Number(file[0].fieldname.replace(/[^0-9]/g, '')) - 1
+      ].profileImageURL = s3UploadResult[index].Location;
+    }
+  });
+
+  return senierProject;
+};
+
+const checkObjectValueLength = (
+  keys: string[],
+  data: SenierProject
+): string | null | false => {
+  if (!Array.isArray(keys)) {
+    return false;
+  }
+
+  const emptyKeyIndex: number = keys.findIndex(
+    (key: string) => !data[key]?.length
+  );
+
+  if (emptyKeyIndex === -1) {
+    return null;
+  }
+
+  return keys[emptyKeyIndex];
+};
 
 app.post(
   '/',
@@ -65,173 +175,70 @@ app.post(
   ]),
   verifyRefreshToken,
   async (req: Request, res: Response, next: NextFunction) => {
+    if (
+      !checkRequiredProperties(
+        ['groupName', 'year', 'teamMember', 'link', 'plattform', 'technology'],
+        JSON.parse(JSON.stringify(req.body))
+      )
+    ) {
+      return res.status(400).json({ message: '잘못된 요청입니다,' });
+    }
+
+    const body: SenierProject = multerStringFiyValueParsing(
+      ['teamMember', 'link', 'plattform', 'technology'],
+      req.body
+    );
+
+    if (!body?.teamMember?.length) {
+      return res.status(400).json({ message: '팀원은 한명이상이 필요합니다.' });
+    }
+
+    if (
+      checkTeamMembersRequireProperties(
+        body.teamMember as SenierProjectTeamMember[]
+      )
+    ) {
+      return res.status(400).json({ message: '잘못된 요청입니다,' });
+    }
+
+    const emptyValue: string | null | false = checkObjectValueLength(
+      ['plattform', 'technology', 'link'],
+      body
+    );
+
+    if (emptyValue) {
+      return res
+        .status(400)
+        .json({ message: `${emptyValue}(를)을 하나 이상 넣어주십시오.` });
+    }
+
+    const email = res.locals.email;
+
     try {
-      if (
-        !checkRequiredProperties(
-          [
-            'groupName',
-            'year',
-            'teamMember',
-            'link',
-            'plattform',
-            'technology',
-          ],
-          JSON.parse(JSON.stringify(req.body))
-        )
-      ) {
-        throw { code: 400, message: '잘못된 요청입니다,' };
-      }
-
-      const multerStringFiyValueParsing = (body: {
-        [key: string]: string;
-      }): SenierProject => {
-        const keys: string[] = [
-          'teamMember',
-          'link',
-          'plattform',
-          'technology',
-        ];
-
-        keys.forEach((key: string) => {
-          body[key] = JSON.parse(body[key]);
-        });
-
-        return JSON.parse(JSON.stringify(body));
-      };
-
-      const body: SenierProject = multerStringFiyValueParsing(req.body);
-
-      if (!body?.teamMember?.length) {
-        throw { code: 400, message: '팀원은 한명이상이 필요합니다.' };
-      }
-
-      const checkTeamMemberRequireProperties = (
-        teamMember: SenierProjectTeamMember[]
-      ): boolean => {
-        let isResult = false;
-        teamMember.forEach((member: any) => {
-          if (
-            !checkRequiredProperties(
-              ['name', 'uniID', 'introduction'],
-              body.teamMember[0]
-            )
-          ) {
-            isResult = true;
-          }
-        });
-
-        return isResult;
-      };
-
-      if (
-        checkTeamMemberRequireProperties(
-          body.teamMember as SenierProjectTeamMember[]
-        )
-      ) {
-        throw { code: 400, message: '잘못된 요청입니다,' };
-      }
-
-      if (
-        !body?.plattform?.length ||
-        !body?.technology?.length ||
-        !body?.link?.length
-      ) {
-        throw {
-          code: 400,
-          message: '링크, 플랫폼, 기술을 하나 이상 넣어주십시오.',
-        };
-      }
-
-      const email = res.locals.email;
       const { is_admin: isAdmin } = await knex('user')
         .select('is_admin')
         .where({ id: email })
         .first();
-
       if (!isAdmin) {
-        throw { code: 403, message: '관리자 계정이 아닙니다.' };
+        return res
+          .status(403)
+          .json({ code: 403, message: '관리자 계정이 아닙니다.' });
       }
-
-      const files: { [fieldname: string]: Express.Multer.File[] } =
-        req.files as {
-          [fieldname: string]: Express.Multer.File[];
-        };
-      const s3UploadFromBinary = async (
-        files: { [fieldname: string]: Express.Multer.File[] },
-        path: string
-      ): Promise<AWS.S3.ManagedUpload.SendData[]> => {
-        const s3UploadResultList: Promise<AWS.S3.ManagedUpload.SendData>[] =
-          Object.values(files).map(async ([file, ...ignore]) => {
-            if (!(file.fieldname == 'projectDesign')) {
-              file.buffer = await sharp(file.buffer)
-                .resize({ fit: 'fill', width: 1080, height: 790 })
-                .toBuffer();
-            }
-
-            return uploadFileToS3(
-              file.buffer,
-              `test/${path}/${file.originalname}`
-            );
-          });
-
-        return Promise.all(s3UploadResultList);
+      const files: {
+        [fieldname: string]: Express.Multer.File[];
+      } = req.files as {
+        [fieldname: string]: Express.Multer.File[];
       };
       const s3UploadResult: AWS.S3.ManagedUpload.SendData[] =
         await s3UploadFromBinary(files, `${body.year}/${body.groupName}`);
-
-      interface PostSenierProject extends SenierProject {
-        teamMember: SenierProjectTeamMember[];
-      }
-
-      const formatSenierProject = (
-        senierProject: PostSenierProject,
-        files: { [fieldname: string]: Express.Multer.File[] },
-        s3UploadResult: AWS.S3.ManagedUpload.SendData[]
-      ): SenierProject => {
-        Object.values(files).forEach(
-          (file: Express.Multer.File[], index: number) => {
-            if (file[0].fieldname === 'projectDesign') {
-              senierProject.projectDesign = s3UploadResult[index].Location;
-            } else {
-              senierProject.teamMember[
-                Number(file[0].fieldname.replace(/[^0-9]/g, '')) - 1
-              ].profileImageURL = s3UploadResult[index].Location;
-            }
-          }
-        );
-
-        return senierProject;
-      };
       const senierProject: SenierProject = formatSenierProject(
         body as PostSenierProject,
         files,
         s3UploadResult
       );
-      const setTeamMember = (
-        teamMember: SenierProjectTeamMember[] = [],
-        id: string = ''
-      ): Promise<number[]>[] => {
-        return teamMember.map(async (member) => {
-          const email: { id: string } = await knex('user')
-            .select('id')
-            .where({ is_student: 1, uni_id: member.uniID })
-            .first();
-
-          return knex('team_member').insert({
-            id,
-            uni_id: member.uniID,
-            name: member.name,
-            introduction: member.introduction,
-            profile_image: member.profileImageURL,
-            ...(!!email && { email: email.id }),
-          });
-        });
-      };
-
       const uniqueID: string = getUniqueID();
-
       await Promise.all([
-        setTeamMember(
+        setTeamMembers(
           senierProject.teamMember as SenierProjectTeamMember[],
           uniqueID
         ),
@@ -242,22 +249,13 @@ app.post(
           group_name: senierProject.groupName,
           project_design: senierProject.projectDesign,
           plattform: JSON.stringify(
-            (senierProject.plattform as number[]).sort(
-              (a: number, b: number) => {
-                return a - b;
-              }
-            )
+            (senierProject.plattform as number[]).sort(sortAsc)
           ),
           technology: JSON.stringify(
-            (senierProject.technology as number[]).sort(
-              (a: number, b: number) => {
-                return a - b;
-              }
-            )
+            (senierProject.technology as number[]).sort(sortAsc)
           ),
         }),
       ]);
-
       res.status(201).json({ isPosted: true });
     } catch (error: any) {
       if (!isNaN(error.code) && !!error.message) {
@@ -270,78 +268,97 @@ app.post(
 );
 
 type QueryElement = string | number | string[] | number[] | null;
-interface SerachOptions {
-  technology?: number[];
-  plattform?: number[];
-  name?: string;
-}
 
-app.get('/card', async (req: Request, res: Response) => {
-  try {
-    const { year, name, plattform, technology } = req.query;
+const formatTeamMembers = (
+  teamMembers: { id: string; name: string }[]
+): { [key: string]: string[] } => {
+  return teamMembers.reduce(
+    (
+      result: { [key: string]: string[] },
+      { id, name }: { id: string; name: string }
+    ) => {
+      if (!result[id]) {
+        result[id] = [];
+      }
+      result[id].push(name);
 
-    if (!year) {
-      throw { code: 400, message: '연차정보를 입력해주세요.' };
-    }
+      return result;
+    },
+    {}
+  );
+};
 
-    const formatTeamMember = (
-      teamMember: { id: string; name: string }[]
-    ): { [key: string]: string[] } => {
-      return teamMember.reduce(
-        (
-          result: { [key: string]: string[] },
-          { id, name }: { id: string; name: string }
-        ) => {
-          if (!result[id]) {
-            result[id] = [];
-          }
-          result[id].push(name);
+const senierProjectParser = (
+  senierProject: SenierProject[]
+): SenierProject[] => {
+  const stringParse = (data: string) => {
+    return JSON.parse(data);
+  };
 
-          return result;
-        },
-        {}
+  return senierProject.reduce(
+    (result: SenierProject[], senierProjectInfo: SenierProject) => {
+      senierProjectInfo.plattform = stringParse(
+        senierProjectInfo.plattform as string
       );
-    };
-    const senierProjectParser = (
-      senierProject: SenierProject[]
-    ): SenierProject[] => {
-      return senierProject.reduce(
-        (result: SenierProject[], senierProjectInfo: SenierProject) => {
-          senierProjectInfo.plattform = JSON.parse(
-            senierProjectInfo.plattform as string
-          );
-          senierProjectInfo.technology = JSON.parse(
-            senierProjectInfo.technology as string
-          );
-          result.push(senierProjectInfo);
-
-          return result;
-        },
-        []
+      senierProjectInfo.technology = stringParse(
+        senierProjectInfo.technology as string
       );
-    };
-    const formatSearchOption = (SerachOption: QueryElement) => {
-      if (!SerachOption) {
-        return null;
-      }
+      result.push(senierProjectInfo);
 
-      if (Array.isArray(SerachOption)) {
-        SerachOption = (SerachOption as string[]).map((value: string) => {
-          return Number(value);
-        });
-      }
+      return result;
+    },
+    []
+  );
+};
 
-      if (!Array.isArray(SerachOption)) {
-        SerachOption = [Number(SerachOption)];
-      }
+const formatSearchOption = (SerachOption: QueryElement) => {
+  if (!SerachOption) {
+    return null;
+  }
 
-      return `%${[...SerachOption]
-        .sort((a: number, b: number) => {
-          return a - b;
+  return `[${[...([SerachOption] as string[])]}]`;
+};
+
+const formatSenierProjectList = async (
+  senierProject: SenierProject[],
+  teamMembers: { [key: string]: string[] }
+) => {
+  const formatArrayToString = (tableName: string, option: number[]) => {
+    return knex(tableName).select('name').whereIn('id', option);
+  };
+
+  const senierProjectList = await Promise.all(
+    senierProject.map(async (data: SenierProject) => {
+      const [plattform, technology] = await Promise.all([
+        formatArrayToString('plattform', data.plattform as number[]),
+        formatArrayToString('technology', data.technology as number[]),
+      ]);
+
+      data.teamMember = teamMembers[data.id].join(', ');
+      data.plattform = plattform
+        .map((data) => {
+          return data.name;
         })
-        .join('%')}%`;
-    };
+        .join(', ');
+      data.technology = technology.map((data) => {
+        return data.name;
+      });
 
+      return data;
+    })
+  );
+
+  return senierProjectList.filter((data: SenierProject | undefined) => !!data);
+};
+
+app.get('/list', async (req: Request, res: Response) => {
+  const { year, name, plattform, technology } = req.query;
+
+  if (!year) {
+    return res.status(400).json({ message: '연차정보를 입력해주세요.' });
+  }
+
+  try {
     const plattformOption = formatSearchOption(plattform as QueryElement);
     const technologyOption = formatSearchOption(technology as QueryElement);
 
@@ -361,28 +378,32 @@ app.get('/card', async (req: Request, res: Response) => {
       .where({ 'senier_project.year': year });
 
     if (!!name) {
-      const senierProjectID = await knex('team_member')
+      const getSenierProjectIds = await knex('team_member')
         .select('id')
         .where({ name });
 
-      getSenierProject.whereIn(
-        'id',
-        senierProjectID.map((data: any) => data.id)
+      const senierProjectIds = getSenierProjectIds.map(
+        (data: { id: string }) => data.id
       );
-      getTeamMember.whereIn(
-        'senier_project.id',
-        senierProjectID.map((data: any) => data.id)
-      );
+
+      getSenierProject.whereIn('id', senierProjectIds);
+      getTeamMember.whereIn('senier_project.id', senierProjectIds);
     }
 
     if (!!plattformOption) {
-      getSenierProject.whereLike('plattform', plattformOption);
-      getTeamMember.whereLike('senier_project.plattform', plattformOption);
+      getSenierProject.whereJsonSupersetOf('plattform', plattformOption);
+      getTeamMember.whereJsonSupersetOf(
+        'senier_project.plattform',
+        plattformOption
+      );
     }
 
     if (!!technologyOption) {
-      getSenierProject.whereLike('technology', technologyOption);
-      getTeamMember.whereLike('senier_project.technology', technologyOption);
+      getSenierProject.whereJsonSupersetOf('technology', technologyOption);
+      getTeamMember.whereJsonSupersetOf(
+        'senier_project.technology',
+        technologyOption
+      );
     }
 
     const [senierProject, teamMember]: [
@@ -393,50 +414,16 @@ app.get('/card', async (req: Request, res: Response) => {
         return senierProjectParser(senierProject);
       }),
       getTeamMember.then((teamMember: { id: string; name: string }[]) => {
-        return formatTeamMember(teamMember);
+        return formatTeamMembers(teamMember);
       }),
     ]);
 
-    const formatSenierProjectCardList = async (
-      senierProject: SenierProject[],
-      teamMember: { [key: string]: string[] }
-    ) => {
-      const senierProjectCardList = await Promise.all(
-        senierProject.map(async (data: SenierProject) => {
-          const [plattform, technology] = await Promise.all([
-            knex('plattform')
-              .select('name')
-              .whereIn('id', data.plattform as number[]),
-            knex('technology')
-              .select('name')
-              .whereIn('id', data.technology as number[]),
-          ]);
-
-          data.teamMember = teamMember[data.id].join(', ');
-          data.plattform = plattform
-            .map((data) => {
-              return data.name;
-            })
-            .join(', ');
-          data.technology = technology.map((data) => {
-            return data.name;
-          });
-
-          return data;
-        })
-      );
-
-      return senierProjectCardList.filter(
-        (data: SenierProject | undefined) => !!data
-      );
-    };
-
-    const senierProjectCardList = await formatSenierProjectCardList(
+    const senierProjectList = await formatSenierProjectList(
       senierProject as SenierProject[],
       teamMember
     );
 
-    res.status(200).json({ senierProjectCardList });
+    res.status(200).json({ senierProjectList });
   } catch (error: any) {
     if (!isNaN(error.code) && !!error.message) {
       return res.status(error.code).json({ message: error.message });
@@ -446,45 +433,46 @@ app.get('/card', async (req: Request, res: Response) => {
   }
 });
 
+const formatTeamMemberList = (
+  teamMemberList: SenierProjectTeamMember[]
+): SenierProjectTeamMember[] => {
+  const teamMember: SenierProjectTeamMember[] = teamMemberList.reduce(
+    (
+      teamMemberList: SenierProjectTeamMember[],
+      memberInfo: SenierProjectTeamMember
+    ) => {
+      teamMemberList.push({
+        name: memberInfo.name as string,
+        introduction: memberInfo.introduction,
+        image: memberInfo.image,
+        ...(!!memberInfo.id && { id: memberInfo.id }),
+      });
+      return teamMemberList;
+    },
+    []
+  );
+
+  return teamMember;
+};
+
 app.get(
-  '/member',
+  '/detail/members',
   (req: Request, res: Response, next: NextFunction) => {
     setViewCount(req, res, next, 'senier_project');
   },
   async (req: Request, res: Response) => {
+    const id: string = req.query.id as string;
+
+    if (!id) {
+      return res.status(400).json({ message: '잘못된 요청입니다.' });
+    }
+
     try {
-      const id: string = req.query.id as string;
-
-      if (!id) {
-        throw { code: 400, message: '잘못된 요청입니다.' };
-      }
-
       const teamMemberList: SenierProjectTeamMember[] = await knex(
         'team_member'
       )
         .select('email as id', 'name', 'introduction', 'profile_image as image')
         .where({ id });
-      const formatTeamMemberList = (
-        teamMemberList: SenierProjectTeamMember[]
-      ): SenierProjectTeamMember[] => {
-        const teamMember: SenierProjectTeamMember[] = teamMemberList.reduce(
-          (
-            teamMemberList: SenierProjectTeamMember[],
-            memberInfo: SenierProjectTeamMember
-          ) => {
-            teamMemberList.push({
-              name: memberInfo.name as string,
-              introduction: memberInfo.introduction,
-              image: memberInfo.image,
-              ...(!!memberInfo.id && { id: memberInfo.id }),
-            });
-            return teamMemberList;
-          },
-          []
-        );
-
-        return teamMember;
-      };
 
       res.status(200).json({
         senierProjectMemberList: formatTeamMemberList(teamMemberList),
@@ -499,14 +487,14 @@ app.get(
   }
 );
 
-app.get('/design', async (req: Request, res: Response) => {
+app.get('/detail/design', async (req: Request, res: Response) => {
+  const id: string = req.query.id as string;
+
+  if (!id) {
+    return res.status(400).json({ message: '잘못된 요청입니다.' });
+  }
+
   try {
-    const id: string = req.query.id as string;
-
-    if (!id) {
-      throw { code: 400, message: '잘못된 요청입니다.' };
-    }
-
     const { projectDesign }: { projectDesign: string } = await knex(
       'senier_project'
     )
@@ -524,14 +512,14 @@ app.get('/design', async (req: Request, res: Response) => {
   }
 });
 
-app.get('/announced', async (req: Request, res: Response) => {
+app.get('/detail/announced', async (req: Request, res: Response) => {
+  const id: string = req.query.id as string;
+
+  if (!id) {
+    return res.status(400).json({ message: '잘못된 요청입니다.' });
+  }
+
   try {
-    const id: string = req.query.id as string;
-
-    if (!id) {
-      throw { code: 400, message: '잘못된 요청입니다.' };
-    }
-
     const { link }: { link: string } = await knex('senier_project')
       .select('link')
       .where({ id })
@@ -548,6 +536,3 @@ app.get('/announced', async (req: Request, res: Response) => {
 });
 
 export default app;
-function join(arg0: string): any {
-  throw new Error('Function not implemented.');
-}
