@@ -35,7 +35,6 @@ interface SenierProjectTeamMember {
   name: string;
   uniID?: string;
   introduction: string;
-  profileImageURL?: string;
   image: string;
   id?: string;
 }
@@ -57,19 +56,20 @@ interface PostSenierProject extends SenierProject {
   teamMember: SenierProjectTeamMember[];
 }
 
-const multerStringFiyValueParsing = (
+// 함수명 생각해보기
+const jsonToObjectParse = (
   keys: string[],
   body: {
     [key: string]: string;
   }
 ): SenierProject => {
-  const copyBody: { [key: string]: string } = body;
+  const cloneBody: { [key: string]: string } = Object.assign(body);
 
   keys.forEach((key: string) => {
-    copyBody[key] = JSON.parse(copyBody[key]);
+    cloneBody[key] = JSON.parse(cloneBody[key]);
   });
 
-  return JSON.parse(JSON.stringify(copyBody));
+  return JSON.parse(JSON.stringify(cloneBody));
 };
 
 const checkTeamMembersRequireProperties = (
@@ -99,7 +99,7 @@ const setTeamMembers = (
       uni_id: member.uniID,
       name: member.name,
       introduction: member.introduction,
-      profile_image: member.profileImageURL,
+      profile_image: member.image,
       ...(!!email && { email: email.id }),
     });
   });
@@ -132,38 +132,40 @@ const formatSenierProject = (
   files: { [fieldname: string]: Express.Multer.File[] },
   s3UploadResult: AWS.S3.ManagedUpload.SendData[]
 ): SenierProject => {
-  const copySenierProject: PostSenierProject = senierProject;
+  const cloneSenierProject: PostSenierProject = Object.assign(senierProject);
 
   Object.values(files).forEach((file: Express.Multer.File[], index: number) => {
+    const location: string = s3UploadResult[index].Location;
+
     if (file[0].fieldname === 'projectDesign') {
-      copySenierProject.projectDesign = s3UploadResult[index].Location;
+      cloneSenierProject.projectDesign = location;
     } else {
-      copySenierProject.teamMember[
+      cloneSenierProject.teamMember[
         Number(file[0].fieldname.replace(/[^0-9]/g, '')) - 1
-      ].profileImageURL = s3UploadResult[index].Location;
+      ].image = location;
     }
   });
 
-  return copySenierProject;
+  return cloneSenierProject;
 };
 
 const checkObjectEmptyValue = (
   keys: string[],
   data: SenierProject
-): string | null | false => {
+): string | false => {
   if (!Array.isArray(keys)) {
     return false;
   }
 
-  const emptyKeyIndex: number = keys.findIndex(
+  const findEmptyIndex: number = keys.findIndex(
     (key: string) => !data[key]?.length
   );
 
-  if (emptyKeyIndex === -1) {
-    return null;
+  if (findEmptyIndex === -1) {
+    return false;
   }
 
-  return keys[emptyKeyIndex];
+  return keys[findEmptyIndex];
 };
 
 app.post(
@@ -181,14 +183,22 @@ app.post(
   async (req: Request, res: Response, next: NextFunction) => {
     if (
       !checkRequiredProperties(
-        ['groupName', 'year', 'teamMember', 'link', 'plattform', 'technology'],
+        [
+          'groupName',
+          'classID',
+          'year',
+          'teamMember',
+          'link',
+          'plattform',
+          'technology',
+        ],
         JSON.parse(JSON.stringify(req.body))
       )
     ) {
       return res.status(400).json({ message: '잘못된 요청입니다,' });
     }
 
-    const body: SenierProject = multerStringFiyValueParsing(
+    const body: SenierProject = jsonToObjectParse(
       ['teamMember', 'link', 'plattform', 'technology'],
       req.body
     );
@@ -205,15 +215,17 @@ app.post(
       return res.status(400).json({ message: '잘못된 요청입니다,' });
     }
 
-    const emptyValue: string | null | false = checkObjectEmptyValue(
+    const emptyValue: string | false = checkObjectEmptyValue(
       ['plattform', 'technology', 'link'],
       body
     );
 
     if (emptyValue) {
-      return res
-        .status(400)
-        .json({ message: `${emptyValue}(를)을 하나 이상 넣어주십시오.` });
+      return res.status(400).json({
+        message: `${
+          { plattform: '플랫폼', technology: '기술', link: '링크' }[emptyValue]
+        }(를)을 하나 이상 넣어주십시오.`,
+      });
     }
 
     const email = res.locals.email;
@@ -223,11 +235,28 @@ app.post(
         .select('is_admin')
         .where({ id: email })
         .first();
+
       if (!isAdmin) {
         return res
           .status(403)
           .json({ code: 403, message: '관리자 계정이 아닙니다.' });
       }
+
+      const { groupName }: { groupName: string } = await knex('senier_project')
+        .select('group_name as groupName')
+        .where({
+          year: body.year,
+          class_id: body.classID,
+          group_name: body.groupName,
+        })
+        .first();
+
+      if (!!groupName) {
+        return res.status(400).json({
+          message: `${groupName}은 이미 등록되어 있는 조 이름 입니다.`,
+        });
+      }
+
       const files: {
         [fieldname: string]: Express.Multer.File[];
       } = req.files as {
@@ -252,6 +281,7 @@ app.post(
           year: senierProject.year,
           link: JSON.stringify(senierProject.link),
           group_name: senierProject.groupName,
+          class_id: senierProject.classID,
           project_design: senierProject.projectDesign,
           plattform: JSON.stringify(
             (senierProject.plattform as number[]).sort(sortAsc)
@@ -297,16 +327,12 @@ const formatTeamMembers = (
 const senierProjectParser = (
   senierProject: SenierProject[]
 ): SenierProject[] => {
-  const stringParse = (data: string) => {
-    return JSON.parse(data);
-  };
-
   return senierProject.reduce(
     (result: SenierProject[], senierProjectInfo: SenierProject) => {
-      senierProjectInfo.plattform = stringParse(
+      senierProjectInfo.plattform = JSON.parse(
         senierProjectInfo.plattform as string
       );
-      senierProjectInfo.technology = stringParse(
+      senierProjectInfo.technology = JSON.parse(
         senierProjectInfo.technology as string
       );
       result.push(senierProjectInfo);
@@ -329,25 +355,25 @@ const formatSenierProjectList = async (
   senierProject: SenierProject[],
   teamMembers: { [key: string]: string[] }
 ) => {
-  const formatArrayToString = (tableName: string, option: number[]) => {
+  const getNameByIds = (tableName: string, option: number[]) => {
     return knex(tableName).select('name').whereIn('id', option);
   };
 
   const senierProjectList = await Promise.all(
     senierProject.map(async (data: SenierProject) => {
-      const [plattform, technology] = await Promise.all([
-        formatArrayToString('plattform', data.plattform as number[]),
-        formatArrayToString('technology', data.technology as number[]),
+      const [plattforms, technologys] = await Promise.all([
+        getNameByIds('plattform', data.plattform as number[]),
+        getNameByIds('technology', data.technology as number[]),
       ]);
 
       data.teamMember = teamMembers[data.id].join(', ');
-      data.plattform = plattform
-        .map((data) => {
-          return data.name;
+      data.plattform = plattforms
+        .map((plattform) => {
+          return plattform.name;
         })
         .join(', ');
-      data.technology = technology.map((data) => {
-        return data.name;
+      data.technology = technologys.map((technology) => {
+        return technology.name;
       });
 
       return data;
@@ -358,7 +384,7 @@ const formatSenierProjectList = async (
 };
 
 app.get('/list', async (req: Request, res: Response) => {
-  const { year, name, plattform, technology } = req.query;
+  const { year, name, plattform, technology, classID } = req.query;
 
   if (!year) {
     return res.status(400).json({ message: '연차정보를 입력해주세요.' });
@@ -367,7 +393,7 @@ app.get('/list', async (req: Request, res: Response) => {
   const plattformOption = formatSearchOption(plattform as QueryElement);
   const technologyOption = formatSearchOption(technology as QueryElement);
 
-  const getSenierProject = knex('senier_project')
+  const getSenierProjects = knex('senier_project')
     .select(
       'id',
       'group_name as groupName',
@@ -377,22 +403,27 @@ app.get('/list', async (req: Request, res: Response) => {
     )
     .where({ year })
     .orderByRaw('RAND()');
-  const getTeamMember = knex('team_member')
+  const getTeamMembers = knex('team_member')
     .select('team_member.id', 'team_member.name')
     .innerJoin('senier_project', 'senier_project.id', 'team_member.id')
     .where({ 'senier_project.year': year });
 
+  if (!!classID) {
+    getSenierProjects.where({ class_id: classID });
+    getTeamMembers.where({ 'senier_project.class_id': classID });
+  }
+
   if (!!plattformOption) {
-    getSenierProject.whereJsonSupersetOf('plattform', plattformOption);
-    getTeamMember.whereJsonSupersetOf(
+    getSenierProjects.whereJsonSupersetOf('plattform', plattformOption);
+    getTeamMembers.whereJsonSupersetOf(
       'senier_project.plattform',
       plattformOption
     );
   }
 
   if (!!technologyOption) {
-    getSenierProject.whereJsonSupersetOf('technology', technologyOption);
-    getTeamMember.whereJsonSupersetOf(
+    getSenierProjects.whereJsonSupersetOf('technology', technologyOption);
+    getTeamMembers.whereJsonSupersetOf(
       'senier_project.technology',
       technologyOption
     );
@@ -408,18 +439,18 @@ app.get('/list', async (req: Request, res: Response) => {
         (data: { id: string }) => data.id
       );
 
-      getSenierProject.whereIn('id', senierProjectIds);
-      getTeamMember.whereIn('senier_project.id', senierProjectIds);
+      getSenierProjects.whereIn('id', senierProjectIds);
+      getTeamMembers.whereIn('senier_project.id', senierProjectIds);
     }
 
     const [senierProject, teamMember]: [
       senierProject: SenierProject[] | (SenierProject | undefined)[],
       teamMember: { [key: string]: string[] }
     ] = await Promise.all([
-      getSenierProject.then((senierProject: SenierProject[]) => {
+      getSenierProjects.then((senierProject: SenierProject[]) => {
         return senierProjectParser(senierProject);
       }),
-      getTeamMember.then((teamMember: { id: string; name: string }[]) => {
+      getTeamMembers.then((teamMember: { id: string; name: string }[]) => {
         return formatTeamMembers(teamMember);
       }),
     ]);
@@ -461,37 +492,29 @@ const formatTeamMemberList = (
   return teamMember;
 };
 
-app.get(
-  '/detail/members',
-  (req: Request, res: Response, next: NextFunction) => {
-    setViewCount(req, res, next, 'senier_project');
-  },
-  async (req: Request, res: Response) => {
-    const id: string = req.query.id as string;
+app.get('/detail/members', async (req: Request, res: Response) => {
+  const id: string = req.query.id as string;
 
-    if (!id) {
-      return res.status(400).json({ message: '잘못된 요청입니다.' });
-    }
-
-    try {
-      const teamMemberList: SenierProjectTeamMember[] = await knex(
-        'team_member'
-      )
-        .select('email as id', 'name', 'introduction', 'profile_image as image')
-        .where({ id });
-
-      res.status(200).json({
-        senierProjectMemberList: formatTeamMemberList(teamMemberList),
-      });
-    } catch (error: any) {
-      if (!isNaN(error.code) && !!error.message) {
-        return res.status(error.code).json({ message: error.message });
-      }
-
-      res.status(500).json({ message: '서버요청에 실패하였습니다.' });
-    }
+  if (!id) {
+    return res.status(400).json({ message: '잘못된 요청입니다.' });
   }
-);
+
+  try {
+    const teamMemberList: SenierProjectTeamMember[] = await knex('team_member')
+      .select('email as id', 'name', 'introduction', 'profile_image as image')
+      .where({ id });
+
+    res.status(200).json({
+      senierProjectMemberList: formatTeamMemberList(teamMemberList),
+    });
+  } catch (error: any) {
+    if (!isNaN(error.code) && !!error.message) {
+      return res.status(error.code).json({ message: error.message });
+    }
+
+    res.status(500).json({ message: '서버요청에 실패하였습니다.' });
+  }
+});
 
 app.get('/detail/design', async (req: Request, res: Response) => {
   const id: string = req.query.id as string;
@@ -540,5 +563,34 @@ app.get('/detail/announced', async (req: Request, res: Response) => {
     res.status(500).json({ message: '서버요청에 실패하였습니다.' });
   }
 });
+
+app.get(
+  '/detail/group-name',
+  (req: Request, res: Response, next: NextFunction) => {
+    setViewCount(req, res, next, 'senier_project');
+  },
+  async (req: Request, res: Response) => {
+    const id: string = req.query.id as string;
+
+    if (!id) {
+      return res.status(400).json({ message: '잘못된 요청입니다.' });
+    }
+
+    try {
+      const { groupName }: { groupName: string } = await knex('senier_project')
+        .select('group_name as groupName')
+        .where({ id })
+        .first();
+
+      res.status(200).json({ groupName });
+    } catch (error: any) {
+      if (!isNaN(error.code) && !!error.message) {
+        return res.status(error.code).json({ message: error.message });
+      }
+
+      res.status(500).json({ message: '서버요청에 실패하였습니다.' });
+    }
+  }
+);
 
 export default app;
