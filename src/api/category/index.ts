@@ -87,4 +87,13 @@ app.get('/technology', async (req: Request, res: Response) => {
   }
 });
 
+app.get('/class', async (req: Request, res: Response) => {
+  try {
+    const classList: Category[] = await knex('class').select('*');
+    res.status(200).json({ classList });
+  } catch (error) {
+    res.status(500).json({ message: '서버요청에 실패하였습니다.' });
+  }
+});
+
 export default app;
