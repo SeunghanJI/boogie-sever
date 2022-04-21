@@ -35,7 +35,7 @@ interface SenierProjectTeamMember {
   name: string;
   uniID?: string;
   introduction: string;
-  image: string;
+  image?: string;
   id?: string;
 }
 
@@ -242,14 +242,14 @@ app.post(
           .json({ code: 403, message: '관리자 계정이 아닙니다.' });
       }
 
-      const { groupName }: { groupName: string } = await knex('senier_project')
+      const { groupName } = (await knex('senier_project')
         .select('group_name as groupName')
         .where({
           year: body.year,
           class_id: body.classID,
           group_name: body.groupName,
         })
-        .first();
+        .first()) || { groupName: false };
 
       if (!!groupName) {
         return res.status(400).json({
@@ -294,6 +294,7 @@ app.post(
 
       res.status(201).json({ isPosted: true });
     } catch (error: any) {
+      console.log(error);
       if (!isNaN(error.code) && !!error.message) {
         return res.status(error.code).json({ message: error.message });
       }
