@@ -96,4 +96,13 @@ app.get('/class', async (req: Request, res: Response) => {
   }
 });
 
+app.get('/community', async (req: Request, res: Response) => {
+  try {
+    const communityList: Category[] = await knex('board_category').select('*');
+    res.status(200).json({ communityList });
+  } catch (error) {
+    res.status(500).json({ message: '서버요청에 실패하였습니다.' });
+  }
+});
+
 export default app;
