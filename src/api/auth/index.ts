@@ -307,15 +307,20 @@ app.post('/join', (req: Request, res: Response) => {
         });
       }
 
-      return knex('user').insert({
-        id,
-        nickname,
-        name,
-        birthday,
-        uni_id: uniID,
-        password: encryptString(password),
-        is_student: isStudent ? 1 : 0,
-      });
+      return Promise.all([
+        knex('user').insert({
+          id,
+          nickname,
+          name,
+          birthday,
+          uni_id: uniID,
+          password: encryptString(password),
+          is_student: isStudent ? 1 : 0,
+        }),
+        knex('user_profile').insert({
+          user_id: id,
+        }),
+      ]);
     })
     .then((ignore) => {
       res.status(201).json({ isJoin: true });
