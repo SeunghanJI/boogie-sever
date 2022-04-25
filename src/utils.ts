@@ -36,7 +36,8 @@ export const checkObjectValueEmpty = (data: any = {}): boolean => {
 };
 
 /*
-    16자리의 램덤id를 리턴
+    uuid의 v4기반의 id값을 16자리로 자른후 리턴
+    @returns string => 16자리의 랜덤 문자열을 리턴
 */
 export const getUniqueID = (): string => {
   return uuidv4().split('-').join('').substring(0, 16);
