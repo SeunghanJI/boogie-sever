@@ -100,7 +100,6 @@ app.get('/class', async (req: Request, res: Response) => {
 app.get('/community', async (req: Request, res: Response) => {
   try {
     const communityList: Category[] = await knex('board_category').select('*');
-    console.log(communityList);
     res.status(200).json({ communityList });
   } catch (error) {
     console.log(error);
