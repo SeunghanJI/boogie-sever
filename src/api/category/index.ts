@@ -10,6 +10,7 @@ const knex: Knex = require('knex')({
     user: process.env.DB_USER,
     password: process.env.DB_PASSWORD,
     database: process.env.DB_NAME,
+    charset: 'utf8mb4',
     typeCast: (field: any, next: NextFunction) => {
       if (field.type === 'TINY' && field.length === 4) {
         let value = field.string();
@@ -99,8 +100,10 @@ app.get('/class', async (req: Request, res: Response) => {
 app.get('/community', async (req: Request, res: Response) => {
   try {
     const communityList: Category[] = await knex('board_category').select('*');
+    console.log(communityList);
     res.status(200).json({ communityList });
   } catch (error) {
+    console.log(error);
     res.status(500).json({ message: '서버요청에 실패하였습니다.' });
   }
 });
