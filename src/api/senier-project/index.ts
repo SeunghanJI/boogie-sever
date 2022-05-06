@@ -3,7 +3,7 @@ import { Knex } from 'knex';
 import multer from 'multer';
 import dotenv from 'dotenv';
 import sharp from 'sharp';
-import { uploadFileToS3 } from '../../s3/index';
+import s3Controller from '../../s3/index';
 import { checkRequiredProperties, getUniqueID } from '../../utils';
 import { setViewCount } from '../../view/index';
 import { verifyRefreshToken } from '../../token/index';
@@ -56,7 +56,6 @@ interface PostSenierProject extends SenierProject {
   teamMember: SenierProjectTeamMember[];
 }
 
-// 함수명 생각해보기
 const jsonToObjectParse = (
   keys: string[],
   body: {
@@ -121,7 +120,10 @@ const s3UploadFromBinary = async (
         return file.buffer;
       })();
 
-      return uploadFileToS3(fileBuffer, `${path}/${file.originalname}`);
+      return s3Controller.uploadFile(
+        fileBuffer,
+        `${path}/${file.originalname}`
+      );
     });
 
   return Promise.all(s3UploadResultList);
@@ -135,14 +137,14 @@ const formatSenierProject = (
   const cloneSenierProject: PostSenierProject = Object.assign(senierProject);
 
   Object.values(files).forEach((file: Express.Multer.File[], index: number) => {
-    const location: string = s3UploadResult[index].Location;
+    const s3key: string = s3UploadResult[index].Key;
 
     if (file[0].fieldname === 'projectDesign') {
-      cloneSenierProject.projectDesign = location;
+      cloneSenierProject.projectDesign = s3key;
     } else {
       cloneSenierProject.teamMember[
         Number(file[0].fieldname.replace(/[^0-9]/g, '')) - 1
-      ].image = location;
+      ].image = s3key;
     }
   });
 
@@ -471,23 +473,22 @@ app.get('/list', async (req: Request, res: Response) => {
   }
 });
 
-const formatTeamMemberList = (
+const formatTeamMemberList = async (
   teamMemberList: SenierProjectTeamMember[]
-): SenierProjectTeamMember[] => {
-  const teamMember: SenierProjectTeamMember[] = teamMemberList.reduce(
-    (
-      teamMemberList: SenierProjectTeamMember[],
-      memberInfo: SenierProjectTeamMember
-    ) => {
-      teamMemberList.push({
+): Promise<SenierProjectTeamMember[]> => {
+  const teamMember = await Promise.all(
+    teamMemberList.map(async (memberInfo: SenierProjectTeamMember) => {
+      const imageURL =
+        !!memberInfo.image &&
+        (await s3Controller.getObjectURL(memberInfo.image));
+      const teamMember: SenierProjectTeamMember = {
         name: memberInfo.name as string,
         introduction: memberInfo.introduction,
-        image: memberInfo.image,
+        ...(!!imageURL && { image: imageURL }),
         ...(!!memberInfo.id && { id: memberInfo.id }),
-      });
-      return teamMemberList;
-    },
-    []
+      };
+      return teamMember;
+    })
   );
 
   return teamMember;
@@ -506,7 +507,7 @@ app.get('/detail/members', async (req: Request, res: Response) => {
       .where({ id });
 
     res.status(200).json({
-      senierProjectMemberList: formatTeamMemberList(teamMemberList),
+      senierProjectMemberList: await formatTeamMemberList(teamMemberList),
     });
   } catch (error: any) {
     if (!isNaN(error.code) && !!error.message) {

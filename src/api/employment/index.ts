@@ -9,7 +9,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { checkRequiredProperties, verifyEmail, getUniqueID } from '../../utils';
 import { verifyAccessToken } from '../../token/index';
 import { REGION_MAP } from '../category/index';
-import { uploadFileToS3 } from '../../s3';
+import s3Controller from '../../s3';
 import { setViewCount } from '../../view/index';
 dotenv.config();
 
@@ -111,6 +111,13 @@ app.get(
       const [province, city]: string[] = splitJsonAddress(
         employmentInfo.addressInformation
       );
+      const imageURL = await s3Controller.getObjectURL(employmentInfo.image);
+
+      if (!imageURL) {
+        return res.status(500).json({ message: '서버요청에 실패하였습니다.' });
+      }
+
+      employmentInfo.image = imageURL;
       employmentInfo.region = `${province} ${city}`;
       employmentInfo.deadline = dayjs(employmentInfo.deadline).format(
         'YYYY.MM.DD'
@@ -159,19 +166,30 @@ app.get('/list', async (req: Request, res: Response) => {
 
   try {
     const rawEmploymentList: EmploymentModel[] = await EmploymentListQuery;
-    const jobPostingList = rawEmploymentList.map(
-      ({ id, companyName, image, position, addressInformation, viewCount }) => {
-        const [province, city]: string[] = splitJsonAddress(addressInformation);
-        const jobPostingForm = {
+    const jobPostingList = await Promise.all(
+      rawEmploymentList.map(
+        async ({
           id,
           companyName,
           image,
           position,
+          addressInformation,
           viewCount,
-          region: `${province} ${city}`,
-        };
-        return jobPostingForm;
-      }
+        }) => {
+          const imageURL = await s3Controller.getObjectURL(image);
+          const [province, city]: string[] =
+            splitJsonAddress(addressInformation);
+          const jobPostingForm = {
+            id,
+            companyName,
+            ...(!!imageURL && { image: imageURL }),
+            position,
+            viewCount,
+            region: `${province} ${city}`,
+          };
+          return jobPostingForm;
+        }
+      )
     );
 
     res.status(200).json({ jobPostingList });
@@ -245,7 +263,7 @@ app.post(
       return res.status(400).json({ code: 400, message: '잘못된 요청입니다.' });
     }
 
-    const EmploymentInsertBody = {
+    const employmentInsertBody = {
       title,
       content,
       deadline,
@@ -260,11 +278,11 @@ app.post(
       const resizedImageBuffer = await sharp(req.file?.buffer)
         .resize({ fit: 'fill', width: 1080, height: 790 })
         .toBuffer();
-      const data = await uploadFileToS3(
+      const data = await s3Controller.uploadFile(
         resizedImageBuffer,
         `employment/${uuidv4()}.jpg`
       );
-      EmploymentInsertBody.image = data.Location;
+      employmentInsertBody.image = data.Key;
     } catch (error) {
       return res
         .status(500)
@@ -272,7 +290,7 @@ app.post(
     }
 
     try {
-      await knex('job_posting').insert(EmploymentInsertBody);
+      await knex('job_posting').insert(employmentInsertBody);
 
       res.status(201).json({ isPosted: true });
     } catch (error) {
