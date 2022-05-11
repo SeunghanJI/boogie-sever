@@ -19,4 +19,7 @@ app.use('/category', apiCategory);
 import apiEmployment from './employment/index';
 app.use('/employment', apiEmployment);
 
+import apiCommunity from './community/index';
+app.use('/community', apiCommunity);
+
 export default app;
