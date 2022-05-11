@@ -41,7 +41,7 @@ interface BoardContent {
   likeCount: number;
   commentCount: number;
   fromNowWhileAgoPosted?: string;
-  profileImageURL?: string;
+  profileImageURL?: string | null;
   uploadedAt?: string;
   totalCommentLikes?: number;
 }
@@ -52,7 +52,7 @@ interface Comment {
   content: string;
   uploadedAt?: string;
   fromNowWhileAgoPosted?: string;
-  profileImageURL?: string;
+  profileImageURL?: string | null;
 }
 
 app.post('/', verifyAccessToken, async (req: Request, res: Response) => {
@@ -289,7 +289,7 @@ app.get('/list', getUserEmail, async (req: Request, res: Response) => {
     const boardContents: BoardContent[] = await knex('board_content')
       .select(
         'board_content.id as id',
-        'board_content.user_id',
+        'board_content.user_id as userId',
         'user.nickname as userNickname',
         'board_content.title as title',
         'board_content.content as content',
