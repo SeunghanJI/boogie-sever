@@ -67,6 +67,30 @@ export const verifyToken = (
   }
 };
 
+export const getUserEmail = (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): void => {
+  const authorization: string = req.headers.authorization || '';
+  const jwtSecretKey: string = process.env.jWT_SECRET || '';
+
+  if (!authorization) {
+    next();
+  } else {
+    try {
+      const data = jwt.verify(
+        authorization.replace(`${jwtSecretKey} `, ''),
+        jwtSecretKey
+      ) as UserPayload;
+      res.locals.email = data.email;
+      next();
+    } catch (error: unknown) {
+      next();
+    }
+  }
+};
+
 export const verifyAccessToken = (
   req: Request,
   res: Response,
