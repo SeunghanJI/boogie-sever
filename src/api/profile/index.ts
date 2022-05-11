@@ -27,18 +27,31 @@ const knex: Knex = require('knex')({
   },
 });
 
-interface Profile {
-  id: string;
-  isMe: boolean;
-  nickname: string;
-  isOpen: boolean;
-  image?: string;
-  job?: number;
+interface ProfileStringKeys {
+  [keys: string]:
+    | null
+    | boolean
+    | undefined
+    | string
+    | string[]
+    | { name: string; awarededAt: string }[]
+    | number[];
+}
+
+interface OptionalProfile extends ProfileStringKeys {
+  image?: string | null;
   positions?: string | number[];
   technologies?: string | number[];
   introduction?: string;
   awards?: string | { name: string; awarededAt: string }[];
   links?: string | string[];
+}
+
+interface Profile extends OptionalProfile {
+  id: string;
+  isMe: boolean;
+  nickname: string;
+  isOpen: boolean;
 }
 
 const getProfileInfo = async (id: string, requester: string = id) => {
@@ -89,33 +102,25 @@ const getProfileInfo = async (id: string, requester: string = id) => {
     };
 
     if (!!isMe || !!isOpen) {
-      const optionalInfo: {
-        image?: string;
-        job?: number;
-        positions?: string | number[];
-        technologies?: string | number[];
-        introduction?: string;
-        awards?: string | { name: string; awarededAt: string }[];
-        links?: string | string[];
-      } = {
+      const optionalInfo: OptionalProfile = {
         ...(!!awards && { awards: JSON.parse(awards) }),
         ...(!!links && { links: JSON.parse(links) }),
         ...(!!introduction && { introduction }),
       };
 
       if (!!positions) {
-        const positionArr: number[] = JSON.parse(positions);
+        const positionIds: number[] = JSON.parse(positions);
         const positionsInfo = await knex('job_category')
           .select('*')
-          .whereIn('id', positionArr);
+          .whereIn('id', positionIds);
         optionalInfo.positions = positionsInfo;
       }
 
       if (!!technologies) {
-        const technologyArr: number[] = JSON.parse(technologies);
+        const technologyIds: number[] = JSON.parse(technologies);
         const technologiesInfo = await knex('technology')
           .select('*')
-          .whereIn('id', technologyArr);
+          .whereIn('id', technologyIds);
         optionalInfo.technologies = technologiesInfo;
       }
 
@@ -135,6 +140,91 @@ const getProfileInfo = async (id: string, requester: string = id) => {
   }
 };
 
+app.patch(
+  '/',
+  verifyAccessToken,
+  multer({ storage: memoryStorage() }).single('image'),
+  async (req: Request, res: Response) => {
+    const id: string = res.locals.email;
+    const body: Profile = JSON.parse(JSON.stringify(req.body));
+    const { positions, technologies, introduction, awards, links } = body;
+    const image =
+      req.file?.buffer || (body.image === '' ? body.image : undefined);
+
+    if (
+      [positions, technologies, introduction, awards, links, image].every(
+        (element) => element === undefined
+      )
+    ) {
+      return res.status(400).json({ message: '잘못된 요청입니다.' });
+    }
+
+    const init: OptionalProfile = {};
+    const profileUpdateBody = Object.keys(body).reduce((acc, cur) => {
+      acc[cur] = body[cur] === '' ? null : body[cur];
+      return acc;
+    }, init);
+
+    if (!!awards) {
+      const parsedAwards: { name: string; awardedAt: string }[] = JSON.parse(
+        awards as string
+      );
+      if (parsedAwards.length > 1) {
+        parsedAwards.sort((a, b) => {
+          return a.awardedAt.localeCompare(b.awardedAt);
+        });
+      }
+      profileUpdateBody.awards = JSON.stringify(parsedAwards);
+    }
+
+    if (image !== undefined) {
+      try {
+        const oldInfo: { image: string } = await knex('user_profile')
+          .select('image')
+          .where({ user_id: id })
+          .first();
+
+        if (!!oldInfo.image) {
+          await s3Controller.deleteObject(oldInfo.image);
+        }
+
+        profileUpdateBody.image = null;
+      } catch (error) {
+        return res.status(500).json({ message: '기존 이미지 가져오기 실패' });
+      }
+
+      if (image !== '') {
+        try {
+          const resizedImageBuffer = await sharp(req.file?.buffer)
+            .resize({ fit: 'fill', width: 110, height: 110 })
+            .toBuffer();
+          const data = await s3Controller.uploadFile(
+            resizedImageBuffer,
+            `profile/${id}/${req.file?.originalname}`
+          );
+          profileUpdateBody.image = data.Key;
+        } catch (error) {
+          return res
+            .status(500)
+            .json({ message: '이미지 업로드에 실패하였습니다.' });
+        }
+      }
+    }
+
+    try {
+      await knex('user_profile')
+        .where({ user_id: id })
+        .update(profileUpdateBody);
+
+      const profileInfo = await getProfileInfo(id);
+
+      res.status(200).json({ profileInfo });
+    } catch (error) {
+      res.status(500).json({ message: '서버요청 실패' });
+    }
+  }
+);
+
 app.patch('/open', verifyAccessToken, async (req: Request, res: Response) => {
   const id: string = res.locals.email;
   const openInformation: boolean = req.body.openInformation;
@@ -150,10 +240,10 @@ app.patch('/open', verifyAccessToken, async (req: Request, res: Response) => {
 });
 
 app.get('/', getUserEmail, async (req: Request, res: Response) => {
-  const requester = res.locals.email || -1;
+  const requester: string = res.locals.email || -1;
   const id = req.query?.id;
 
-  if (!id && typeof id === 'string') {
+  if (!id) {
     return res.status(400).json({ message: '잘못된 요청입니다.' });
   }
 
