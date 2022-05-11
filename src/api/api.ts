@@ -22,4 +22,7 @@ app.use('/employment', apiEmployment);
 import apiCommunity from './community/index';
 app.use('/community', apiCommunity);
 
+import apiProfile from './profile/index';
+app.use('/profile', apiProfile);
+
 export default app;
