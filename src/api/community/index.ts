@@ -185,7 +185,7 @@ app.patch(
         .onConflict()
         .merge();
 
-      res.status(200).json({ isLike: !isLiked });
+      res.status(200).json({ isLiked: !isLiked });
     } catch (error: any) {
       if (!isNaN(error.code) && !!error.message) {
         return res.status(error.code).json({ message: error.message });
