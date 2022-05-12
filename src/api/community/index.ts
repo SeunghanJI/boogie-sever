@@ -185,7 +185,12 @@ app.patch(
         .onConflict()
         .merge();
 
-      res.status(200).json({ isLiked: !isLiked });
+      const { likeCount }: { likeCount: number } = (await knex('board_like')
+        .count('board_content_id as likeCount')
+        .where({ board_content_id: id })
+        .first()) as { likeCount: number };
+
+      res.status(200).json({ isLiked: !isLiked, likeCount });
     } catch (error: any) {
       if (!isNaN(error.code) && !!error.message) {
         return res.status(error.code).json({ message: error.message });
