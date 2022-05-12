@@ -187,8 +187,10 @@ app.patch(
 
       const { likeCount }: { likeCount: number } = (await knex('board_like')
         .count('board_content_id as likeCount')
-        .where({ board_content_id: id })
+        .where({ board_content_id: id, is_deleted: 0 })
         .first()) as { likeCount: number };
+
+      console.log(likeCount);
 
       res.status(200).json({ isLiked: !isLiked, likeCount });
     } catch (error: any) {
@@ -209,13 +211,13 @@ const formatBoardContent = async (
   const isLiked: boolean = await checkLiked(data.id, email || '');
   const { likeCount }: { likeCount: number } = (await knex('board_like')
     .count('board_content_id as likeCount')
-    .where({ board_content_id: data.id })
+    .where({ board_content_id: data.id, is_deleted: 0 })
     .first()) as { likeCount: number };
   const { commentCount }: { commentCount: number } = (await knex(
     'board_comment'
   )
     .count('board_content_id as commentCount')
-    .where({ board_content_id: data.id })
+    .where({ board_content_id: data.id, is_deleted: 0 })
     .first()) as { commentCount: number };
 
   return {
