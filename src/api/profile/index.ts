@@ -5,7 +5,6 @@ import multer, { memoryStorage } from 'multer';
 import { Knex } from 'knex';
 import s3Controller from '../../s3/index';
 import sharp from 'sharp';
-import { getUniqueID } from '../../utils';
 dotenv.config();
 
 const app: express.Application = express();
@@ -54,21 +53,14 @@ interface Profile extends OptionalProfile {
   isOpen: boolean;
 }
 
-const getProfileInfo = async (id: string, requester: string = id) => {
+const getProfileInfo = async (
+  id: string,
+  requester: string = id
+): Promise<Profile | null> => {
   const isMe = id === requester;
 
   try {
-    const {
-      isOpen,
-      nickname,
-      userId,
-      image,
-      introduction,
-      positions,
-      technologies,
-      awards,
-      links,
-    }: {
+    const profile: {
       isOpen: boolean;
       nickname: string;
       userId: string;
@@ -94,46 +86,64 @@ const getProfileInfo = async (id: string, requester: string = id) => {
       .innerJoin('user', 'user_profile.user_id', 'user.id')
       .first();
 
-    let profileInfo: Profile = {
+    if (!profile) {
+      return null;
+    }
+
+    const {
+      isOpen,
+      nickname,
+      userId,
+      image,
+      introduction,
+      positions,
+      technologies,
+      awards,
+      links,
+    } = profile;
+
+    const baseInfo: Profile = {
       isOpen,
       isMe,
       nickname,
       id: userId,
     };
 
-    if (!!isMe || !!isOpen) {
-      const optionalInfo: OptionalProfile = {
-        ...(!!awards && { awards: JSON.parse(awards) }),
-        ...(!!links && { links: JSON.parse(links) }),
-        ...(!!introduction && { introduction }),
-      };
-
-      if (!!positions) {
-        const positionIds: number[] = JSON.parse(positions);
-        const positionsInfo = await knex('job_category')
-          .select('*')
-          .whereIn('id', positionIds);
-        optionalInfo.positions = positionsInfo;
-      }
-
-      if (!!technologies) {
-        const technologyIds: number[] = JSON.parse(technologies);
-        const technologiesInfo = await knex('technology')
-          .select('*')
-          .whereIn('id', technologyIds);
-        optionalInfo.technologies = technologiesInfo;
-      }
-
-      if (!!image) {
-        const imageURL = await s3Controller.getObjectURL(image);
-
-        if (!!imageURL) {
-          optionalInfo.image = imageURL;
-        }
-      }
-      profileInfo = { ...profileInfo, ...optionalInfo };
+    if (!isMe && !isOpen) {
+      return baseInfo;
     }
 
+    const optionalInfo: OptionalProfile = {
+      ...(!!awards && { awards: JSON.parse(awards) }),
+      ...(!!links && { links: JSON.parse(links) }),
+      ...(!!introduction && { introduction }),
+    };
+
+    if (!!positions) {
+      const positionIds: number[] = JSON.parse(positions);
+      const positionsInfo = await knex('job_category')
+        .select('*')
+        .whereIn('id', positionIds);
+      optionalInfo.positions = positionsInfo;
+    }
+
+    if (!!technologies) {
+      const technologyIds: number[] = JSON.parse(technologies);
+      const technologiesInfo = await knex('technology')
+        .select('*')
+        .whereIn('id', technologyIds);
+      optionalInfo.technologies = technologiesInfo;
+    }
+
+    if (!!image) {
+      const imageURL = await s3Controller.getObjectURL(image);
+
+      if (!!imageURL) {
+        optionalInfo.image = imageURL;
+      }
+    }
+
+    const profileInfo: Profile = { ...baseInfo, ...optionalInfo };
     return profileInfo;
   } catch (error) {
     throw new Error('프로필 가져오기 실패');
@@ -160,20 +170,26 @@ app.patch(
     }
 
     const init: OptionalProfile = {};
-    const profileUpdateBody = Object.keys(body).reduce((acc, cur) => {
-      acc[cur] = body[cur] === '' ? null : body[cur];
-      return acc;
-    }, init);
+    const profileUpdateBody = Object.keys(body).reduce(
+      (profileUpdateBody, requestKey) => {
+        profileUpdateBody[requestKey] =
+          body[requestKey] === '' ? null : body[requestKey];
+        return profileUpdateBody;
+      },
+      init
+    );
 
     if (!!awards) {
       const parsedAwards: { name: string; awardedAt: string }[] = JSON.parse(
         awards as string
       );
+
       if (parsedAwards.length > 1) {
         parsedAwards.sort((a, b) => {
           return a.awardedAt.localeCompare(b.awardedAt);
         });
       }
+
       profileUpdateBody.awards = JSON.stringify(parsedAwards);
     }
 
@@ -249,6 +265,10 @@ app.get('/', getUserEmail, async (req: Request, res: Response) => {
 
   try {
     const profileInfo = await getProfileInfo(id as string, requester);
+
+    if (!profileInfo) {
+      return res.status(404).json({ message: '리소스를 찾을 수 없습니다.' });
+    }
 
     res.status(200).json({ profileInfo });
   } catch (error) {
