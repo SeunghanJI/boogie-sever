@@ -243,11 +243,11 @@ app.patch(
 
 app.patch('/open', verifyAccessToken, async (req: Request, res: Response) => {
   const id: string = res.locals.email;
-  const openInformation: boolean = req.body.openInformation;
+  const willOpenInformation: boolean = req.body.willOpenInformation;
 
   try {
     await knex('user_profile')
-      .update({ is_open_information: openInformation })
+      .update({ is_open_information: willOpenInformation })
       .where({ user_id: id });
     res.status(200).json({ isChanged: true });
   } catch (error) {
