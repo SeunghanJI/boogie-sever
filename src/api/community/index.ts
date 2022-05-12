@@ -421,7 +421,7 @@ app.get('/comments', async (req: Request, res: Response) => {
   try {
     const comments: Comment[] = await knex('board_comment')
       .select(
-        'board_comment.board_content_id as id',
+        'board_comment.id as id',
         'board_comment.user_id as userId',
         'user.nickname as userNickname',
         'board_comment.content as content',
