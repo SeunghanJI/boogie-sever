@@ -256,7 +256,7 @@ app.patch('/open', verifyAccessToken, async (req: Request, res: Response) => {
 });
 
 app.get('/', getUserEmail, async (req: Request, res: Response) => {
-  const requester: string = res.locals.email || -1;
+  const requester: string = res.locals.email || '';
   const id = req.query?.id;
 
   if (!id) {
