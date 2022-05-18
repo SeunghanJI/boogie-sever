@@ -85,19 +85,42 @@ app.post('/', verifyAccessToken, async (req: Request, res: Response) => {
   }
 });
 
-const formatComments = (comments: Comment[]): Comment[] => {
-  return comments.map((comment: Comment) => {
-    return {
-      id: comment.id,
-      userId: comment.userId,
-      userNickname: comment.userNickname,
-      content: comment.content,
-      fromNowWhileAgoPosted: dayjs(`${comment.uploadedAt}`).fromNow(),
-      ...(!!comment.profileImageURL && {
-        profileImageURL: comment.profileImageURL,
-      }),
-    };
-  });
+const formatComments = (comments: Comment[]): Promise<Comment[]> => {
+  return Promise.all(
+    comments.map(async (comment: Comment) => {
+      return {
+        id: comment.id,
+        userId: comment.userId,
+        userNickname: comment.userNickname,
+        content: comment.content,
+        fromNowWhileAgoPosted: dayjs(`${comment.uploadedAt}`).fromNow(),
+        ...(!!comment.profileImageURL && {
+          profileImageURL: (
+            (await s3Controller.getObjectURL(comment.profileImageURL)) as string
+          ).split('?')[0],
+        }),
+      };
+    })
+  );
+};
+
+const getComments = (id: string): Promise<Comment[]> => {
+  return knex('board_comment')
+    .select(
+      'board_comment.id as id',
+      'board_comment.user_id as userId',
+      'user.nickname as userNickname',
+      'board_comment.content as content',
+      'board_comment.uploaded_at as uploadedAt',
+      'user_profile.image as profileImageURL'
+    )
+    .innerJoin('user', 'user.id', 'board_comment.user_id')
+    .innerJoin('user_profile', 'user_profile.user_id', 'board_comment.user_id')
+    .where({
+      'board_comment.board_content_id': id,
+      'board_comment.is_deleted': false,
+    })
+    .orderBy('board_comment.uploaded_at', 'desc');
 };
 
 app.post('/comment', verifyAccessToken, async (req: Request, res: Response) => {
@@ -117,24 +140,9 @@ app.post('/comment', verifyAccessToken, async (req: Request, res: Response) => {
       uploaded_at: dayjs().format('YYYY-MM-DD HH:mm:ss'),
     });
 
-    const comments: Comment[] = await knex('board_comment')
-      .select(
-        'board_comment.id as id',
-        'board_comment.user_id as userId',
-        'user.nickname as userNickname',
-        'board_comment.content as content',
-        'board_comment.uploaded_at as uploadedAt',
-        'user_profile.image as profileImageURL'
-      )
-      .innerJoin(
-        'user_profile',
-        'user_profile.user_id',
-        'board_comment.user_id'
-      )
-      .innerJoin('user', 'user.id', 'board_comment.user_id')
-      .where({ 'board_comment.board_content_id': body.id, is_deleted: 0 });
+    const comments: Comment[] = await getComments(body.id);
 
-    res.status(201).json({ comments: formatComments(comments) });
+    res.status(201).json({ comments: await formatComments(comments) });
   } catch (error: any) {
     if (!isNaN(error.code) && !!error.message) {
       return res.status(error.code).json({ message: error.message });
@@ -155,7 +163,7 @@ const checkLiked = (id: string, email: string): Promise<boolean> => {
       return false;
     }
 
-    return liked?.isDeleted ? false : true;
+    return liked.isDeleted ? false : true;
   })();
 
   return isLiked;
@@ -189,8 +197,6 @@ app.patch(
         .count('board_content_id as likeCount')
         .where({ board_content_id: id, is_deleted: 0 })
         .first()) as { likeCount: number };
-
-      console.log(likeCount);
 
       res.status(200).json({ isLiked: !isLiked, likeCount });
     } catch (error: any) {
@@ -284,6 +290,30 @@ app.get(
   }
 );
 
+const getBoardContents = (
+  categoryId: any,
+  offset: number
+): Promise<BoardContent[]> => {
+  return knex('board_content')
+    .select(
+      'board_content.id as id',
+      'board_content.user_id as userId',
+      'user.nickname as userNickname',
+      'board_content.title as title',
+      'board_content.content as content',
+      'board_content.uploaded_at as uploadedAt',
+      'user_profile.image as profileImageURL'
+    )
+    .innerJoin('user', 'user.id', 'board_content.user_id')
+    .innerJoin('user_profile', 'user_profile.user_id', 'board_content.user_id')
+    .where({
+      'board_content.category_id': categoryId,
+    })
+    .orderBy('board_content.uploaded_at', 'desc')
+    .limit(PAGE_LIMIT)
+    .offset(offset);
+};
+
 app.get('/list', getUserEmail, async (req: Request, res: Response) => {
   const query = req.query;
   const email: string = res.locals.email;
@@ -292,44 +322,19 @@ app.get('/list', getUserEmail, async (req: Request, res: Response) => {
     return res.status(400).json({ message: '잘못된 요청입니다.' });
   }
 
+  if (Number(query.page as string) < 1) {
+    return res.status(400).json({ message: '잘못된 요청입니다.' });
+  }
+
   try {
-    const boardContents: BoardContent[] = await knex('board_content')
-      .select(
-        'board_content.id as id',
-        'board_content.user_id as userId',
-        'user.nickname as userNickname',
-        'board_content.title as title',
-        'board_content.content as content',
-        'board_content.uploaded_at as uploadedAt',
-        'user_profile.image as profileImageURL'
-      )
-      .innerJoin('user', 'user.id', 'board_content.user_id')
-      .innerJoin(
-        'user_profile',
-        'user_profile.user_id',
-        'board_content.user_id'
-      )
-      .where({
-        'board_content.category_id': query.categoryId,
-      })
-      .orderBy('board_content.uploaded_at');
-
-    const contentList: BoardContent[] = await Promise.all(
-      boardContents.map((content: BoardContent) =>
-        formatBoardContent(email, content)
-      )
+    const currentPageContentList: BoardContent[] = await getBoardContents(
+      query.categoryId,
+      (Number(query.page as string) - 1) * PAGE_LIMIT
     );
-
-    const startIndex: number = (Number(query.page as string) - 1) * PAGE_LIMIT;
-    const endIndex: number = Number(query.page as string) * PAGE_LIMIT - 1;
-    const currentPageContentList: BoardContent[] = contentList.slice(
-      startIndex,
-      endIndex
-    );
-    const nextPageNumber: number = ((): number => {
-      const nextPageContentList: BoardContent[] = contentList.slice(
-        startIndex + PAGE_LIMIT,
-        endIndex + PAGE_LIMIT
+    const nextPageNumber: number = await (async (): Promise<number> => {
+      const nextPageContentList: BoardContent[] = await getBoardContents(
+        query.categoryId,
+        Number(query.page as string) * PAGE_LIMIT
       );
 
       if (!nextPageContentList.length) {
@@ -339,9 +344,13 @@ app.get('/list', getUserEmail, async (req: Request, res: Response) => {
       return Number(query.page as string) + 1;
     })();
 
-    res
-      .status(200)
-      .json({ contentList: currentPageContentList, page: nextPageNumber });
+    const contentList: BoardContent[] = await Promise.all(
+      currentPageContentList.map((contentInfo: BoardContent) =>
+        formatBoardContent(email, contentInfo)
+      )
+    );
+
+    res.status(200).json({ contentList, page: nextPageNumber });
   } catch (error: any) {
     if (!isNaN(error.code) && !!error.message) {
       return res.status(error.code).json({ message: error.message });
@@ -351,7 +360,7 @@ app.get('/list', getUserEmail, async (req: Request, res: Response) => {
   }
 });
 
-const boardContentBestPick = (contentList: BoardContent[]): BoardContent[] => {
+const bestBoardContents = (contentList: BoardContent[]): BoardContent[] => {
   const bestPickList = contentList
     .map((content: BoardContent) => {
       content.totalCommentLikes = content.commentCount * 2 + content.likeCount;
@@ -406,7 +415,7 @@ app.get('/best-pick', async (req: Request, res: Response) => {
       )
     );
 
-    const bestPickList = boardContentBestPick(contentList);
+    const bestPickList: BoardContent[] = bestBoardContents(contentList);
 
     res.status(200).json({ content: bestPickList });
   } catch (error: any) {
@@ -426,27 +435,9 @@ app.get('/comments', async (req: Request, res: Response) => {
   }
 
   try {
-    const comments: Comment[] = await knex('board_comment')
-      .select(
-        'board_comment.id as id',
-        'board_comment.user_id as userId',
-        'user.nickname as userNickname',
-        'board_comment.content as content',
-        'board_comment.uploaded_at as uploadedAt',
-        'user_profile.image as profileImageURL'
-      )
-      .innerJoin('user', 'user.id', 'board_comment.user_id')
-      .innerJoin(
-        'user_profile',
-        'user_profile.user_id',
-        'board_comment.user_id'
-      )
-      .where({
-        'board_comment.board_content_id': id,
-        'board_comment.is_deleted': false,
-      });
+    const comments: Comment[] = await getComments(id);
 
-    res.status(200).json({ comments: formatComments(comments) });
+    res.status(200).json({ comments: await formatComments(comments) });
   } catch (error: any) {
     if (!isNaN(error.code) && !!error.message) {
       return res.status(error.code).json({ message: error.message });
