@@ -4,7 +4,7 @@ import { Knex } from 'knex';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import 'dayjs/locale/ko';
-import { checkRequiredProperties, getUniqueID } from '../../utils';
+import { checkRequiredProperties, generatedUniqueID } from '../../utils';
 import { verifyAccessToken, getUserEmail } from '../../token/index';
 import { setViewCount } from '../../view/index';
 import s3Controller from '../../s3/index';
@@ -38,8 +38,8 @@ interface BoardContent {
   userNickname: string;
   title: string;
   content: string;
-  likeCount: number;
-  commentCount: number;
+  likeCount?: number;
+  commentCount?: number;
   fromNowWhileAgoPosted?: string;
   profileImageURL?: string | null;
   uploadedAt?: string;
@@ -63,7 +63,7 @@ app.post('/', verifyAccessToken, async (req: Request, res: Response) => {
   }
 
   const email: string = res.locals.email;
-  const uniqueID: string = getUniqueID();
+  const uniqueID: string = generatedUniqueID();
 
   try {
     await knex('board_content').insert({
@@ -85,23 +85,21 @@ app.post('/', verifyAccessToken, async (req: Request, res: Response) => {
   }
 });
 
-const formatComments = (comments: Comment[]): Promise<Comment[]> => {
-  return Promise.all(
-    comments.map(async (comment: Comment) => {
-      return {
-        id: comment.id,
-        userId: comment.userId,
-        userNickname: comment.userNickname,
-        content: comment.content,
-        fromNowWhileAgoPosted: dayjs(`${comment.uploadedAt}`).fromNow(),
-        ...(!!comment.profileImageURL && {
-          profileImageURL: (
-            (await s3Controller.getObjectURL(comment.profileImageURL)) as string
-          ).split('?')[0],
-        }),
-      };
-    })
-  );
+const formatComments = (comments: Comment[]): Promise<Comment>[] => {
+  return comments.map(async (comment: Comment) => {
+    return {
+      id: comment.id,
+      userId: comment.userId,
+      userNickname: comment.userNickname,
+      content: comment.content,
+      fromNowWhileAgoPosted: dayjs(`${comment.uploadedAt}`).fromNow(),
+      ...(!!comment.profileImageURL && {
+        profileImageURL: (
+          (await s3Controller.getObjectURL(comment.profileImageURL)) as string
+        ).split('?')[0],
+      }),
+    };
+  });
 };
 
 const getComments = (id: string): Promise<Comment[]> => {
@@ -140,9 +138,12 @@ app.post('/comment', verifyAccessToken, async (req: Request, res: Response) => {
       uploaded_at: dayjs().format('YYYY-MM-DD HH:mm:ss'),
     });
 
-    const comments: Comment[] = await getComments(body.id);
+    const originalComments: Comment[] = await getComments(body.id);
+    const comments: Comment[] = await Promise.all(
+      formatComments(originalComments)
+    );
 
-    res.status(201).json({ comments: await formatComments(comments) });
+    res.status(201).json({ comments });
   } catch (error: any) {
     if (!isNaN(error.code) && !!error.message) {
       return res.status(error.code).json({ message: error.message });
@@ -213,22 +214,22 @@ const formatBoardContent = async (
   email: string,
   boardContent: BoardContent
 ) => {
-  const { profileImageURL, uploadedAt, ...data } = Object.assign(boardContent);
+  const { profileImageURL, uploadedAt, ...data } = boardContent;
   const isLiked: boolean = await checkLiked(data.id, email || '');
-  const { likeCount }: { likeCount: number } = (await knex('board_like')
-    .count('board_content_id as likeCount')
-    .where({ board_content_id: data.id, is_deleted: 0 })
-    .first()) as { likeCount: number };
-  const { commentCount }: { commentCount: number } = (await knex(
-    'board_comment'
-  )
-    .count('board_content_id as commentCount')
-    .where({ board_content_id: data.id, is_deleted: 0 })
-    .first()) as { commentCount: number };
+  const [like, comment] = (await Promise.all([
+    knex('board_like')
+      .count('board_content_id as count')
+      .where({ board_content_id: data.id, is_deleted: 0 })
+      .first(),
+    knex('board_comment')
+      .count('board_content_id as count')
+      .where({ board_content_id: data.id, is_deleted: 0 })
+      .first(),
+  ])) as { count: number }[];
 
   return {
-    likeCount,
-    commentCount,
+    likeCount: like.count,
+    commentCount: comment.count,
     fromNowWhileAgoPosted: dayjs(uploadedAt).fromNow(),
     ...data,
     ...(isLiked && { isLiked }),
@@ -255,7 +256,7 @@ app.get(
     }
 
     try {
-      const boardContent: BoardContent = await knex('board_content')
+      const originalBoardContent: BoardContent = await knex('board_content')
         .select(
           'board_content.id as id',
           'board_content.user_id as userId',
@@ -277,9 +278,9 @@ app.get(
         })
         .first();
 
-      res
-        .status(200)
-        .json({ content: await formatBoardContent(email, boardContent) });
+      const content = await formatBoardContent(email, originalBoardContent);
+
+      res.status(200).json({ content });
     } catch (error: any) {
       if (!isNaN(error.code) && !!error.message) {
         return res.status(error.code).json({ message: error.message });
@@ -361,9 +362,10 @@ app.get('/list', getUserEmail, async (req: Request, res: Response) => {
 });
 
 const bestBoardContents = (contentList: BoardContent[]): BoardContent[] => {
-  const bestPickList = contentList
+  const bestPickList: BoardContent[] = contentList
     .map((content: BoardContent) => {
-      content.totalCommentLikes = content.commentCount * 2 + content.likeCount;
+      content.totalCommentLikes =
+        (content.commentCount as number) * 2 + (content.likeCount as number);
 
       return content;
     }, [])
@@ -371,11 +373,11 @@ const bestBoardContents = (contentList: BoardContent[]): BoardContent[] => {
       (a: BoardContent, b: BoardContent) =>
         (b.totalCommentLikes as number) - (a.totalCommentLikes as number)
     )
-    .slice(0, 3)
-    .map((content: BoardContent) => {
-      delete content.totalCommentLikes;
-      return content;
-    });
+    .slice(0, 3);
+
+  bestPickList.forEach(
+    (bestPick: BoardContent) => delete bestPick.totalCommentLikes
+  );
 
   return bestPickList;
 };
@@ -435,9 +437,12 @@ app.get('/comments', async (req: Request, res: Response) => {
   }
 
   try {
-    const comments: Comment[] = await getComments(id);
+    const originalComments: Comment[] = await getComments(id);
+    const comments: Comment[] = await Promise.all(
+      formatComments(originalComments)
+    );
 
-    res.status(200).json({ comments: await formatComments(comments) });
+    res.status(200).json({ comments });
   } catch (error: any) {
     if (!isNaN(error.code) && !!error.message) {
       return res.status(error.code).json({ message: error.message });
