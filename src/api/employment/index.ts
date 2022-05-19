@@ -6,7 +6,11 @@ import sharp from 'sharp';
 import dayjs from 'dayjs';
 import sendMail from '../../mail/index';
 import { v4 as uuidv4 } from 'uuid';
-import { checkRequiredProperties, verifyEmail, getUniqueID } from '../../utils';
+import {
+  checkRequiredProperties,
+  verifyEmail,
+  generatedUniqueID,
+} from '../../utils';
 import { verifyAccessToken } from '../../token/index';
 import { REGION_MAP } from '../category/index';
 import s3Controller from '../../s3';
@@ -267,7 +271,7 @@ app.post(
       title,
       content,
       deadline,
-      id: getUniqueID(),
+      id: generatedUniqueID(),
       user_id: email,
       company_name: companyName,
       image: '',

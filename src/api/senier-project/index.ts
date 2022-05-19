@@ -4,7 +4,7 @@ import multer from 'multer';
 import dotenv from 'dotenv';
 import sharp from 'sharp';
 import s3Controller from '../../s3/index';
-import { checkRequiredProperties, getUniqueID } from '../../utils';
+import { checkRequiredProperties, generatedUniqueID } from '../../utils';
 import { setViewCount } from '../../view/index';
 import { verifyRefreshToken } from '../../token/index';
 dotenv.config();
@@ -271,7 +271,7 @@ app.post(
         files,
         s3UploadResult
       );
-      const uniqueID: string = getUniqueID();
+      const uniqueID: string = generatedUniqueID();
 
       await Promise.all([
         setTeamMembers(
