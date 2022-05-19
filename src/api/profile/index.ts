@@ -158,72 +158,59 @@ app.patch(
     const id: string = res.locals.email;
     const body: Profile = JSON.parse(JSON.stringify(req.body));
     const { positions, technologies, introduction, awards, links } = body;
-    const image =
-      req.file?.buffer || (body.image === '' ? body.image : undefined);
-
-    if (
-      [positions, technologies, introduction, awards, links, image].every(
-        (element) => element === undefined
-      )
-    ) {
-      return res.status(400).json({ message: '잘못된 요청입니다.' });
-    }
+    const image = req.file?.buffer || null;
 
     const init: OptionalProfile = {};
-    const profileUpdateBody = Object.keys(body).reduce(
-      (profileUpdateBody, requestKey) => {
-        profileUpdateBody[requestKey] =
-          body[requestKey] === '' ? null : body[requestKey];
-        return profileUpdateBody;
-      },
-      init
-    );
+    const profileUpdateBody = Object.keys({
+      positions,
+      technologies,
+      introduction,
+      awards,
+      links,
+    }).reduce((profileUpdateBody, requestKey) => {
+      profileUpdateBody[requestKey] = body[requestKey] || null;
+      return profileUpdateBody;
+    }, init);
 
     if (!!awards) {
       const parsedAwards: { name: string; awardedAt: string }[] = JSON.parse(
         awards as string
       );
 
-      if (parsedAwards.length > 1) {
-        parsedAwards.sort((a, b) => {
-          return a.awardedAt.localeCompare(b.awardedAt);
-        });
-      }
+      parsedAwards.sort((a, b) => {
+        return a.awardedAt.localeCompare(b.awardedAt);
+      });
 
       profileUpdateBody.awards = JSON.stringify(parsedAwards);
     }
 
-    if (image !== undefined) {
-      try {
-        const oldInfo: { image: string } = await knex('user_profile')
-          .select('image')
-          .where({ user_id: id })
-          .first();
+    try {
+      const oldInfo: { image: string } = await knex('user_profile')
+        .select('image')
+        .where({ user_id: id })
+        .first();
 
-        if (!!oldInfo.image) {
-          await s3Controller.deleteObject(oldInfo.image);
-        }
-
-        profileUpdateBody.image = null;
-      } catch (error) {
-        return res.status(500).json({ message: '기존 이미지 가져오기 실패' });
+      if (!!oldInfo.image) {
+        await s3Controller.deleteObject(oldInfo.image);
       }
 
-      if (image !== '') {
-        try {
-          const resizedImageBuffer = await sharp(req.file?.buffer)
-            .resize({ fit: 'fill', width: 110, height: 110 })
-            .toBuffer();
-          const data = await s3Controller.uploadFile(
-            resizedImageBuffer,
-            `profile/${id}/${req.file?.originalname}`
-          );
-          profileUpdateBody.image = data.Key;
-        } catch (error) {
-          return res
-            .status(500)
-            .json({ message: '이미지 업로드에 실패하였습니다.' });
-        }
+      profileUpdateBody.image = null;
+    } catch (error) {}
+
+    if (image instanceof Buffer) {
+      try {
+        const resizedImageBuffer = await sharp(image)
+          .resize({ fit: 'fill', width: 110, height: 110 })
+          .toBuffer();
+        const data = await s3Controller.uploadFile(
+          resizedImageBuffer,
+          `profile/${id}/${req.file?.originalname}`
+        );
+        profileUpdateBody.image = data.Key;
+      } catch (error) {
+        return res
+          .status(500)
+          .json({ message: '이미지 업로드에 실패하였습니다.' });
       }
     }
 
@@ -249,7 +236,7 @@ app.patch('/open', verifyAccessToken, async (req: Request, res: Response) => {
     await knex('user_profile')
       .update({ is_open_information: willOpenInformation })
       .where({ user_id: id });
-    res.status(200).json({ isChanged: true });
+    res.status(200).json({ isOpen: willOpenInformation });
   } catch (error) {
     res.status(500).json({ message: '서버요청 실패' });
   }
