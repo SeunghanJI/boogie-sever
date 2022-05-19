@@ -158,7 +158,8 @@ app.patch(
     const id: string = res.locals.email;
     const body: Profile = JSON.parse(JSON.stringify(req.body));
     const { positions, technologies, introduction, awards, links } = body;
-    const image = req.file?.buffer || null;
+    const image: Buffer | string | null =
+      req.file?.buffer || req.body?.image || null;
 
     const init: OptionalProfile = {};
     const profileUpdateBody = Object.keys({
@@ -183,34 +184,35 @@ app.patch(
 
       profileUpdateBody.awards = JSON.stringify(parsedAwards);
     }
-
-    try {
-      const oldInfo: { image: string } = await knex('user_profile')
-        .select('image')
-        .where({ user_id: id })
-        .first();
-
-      if (!!oldInfo.image) {
-        await s3Controller.deleteObject(oldInfo.image);
-      }
-
-      profileUpdateBody.image = null;
-    } catch (error) {}
-
-    if (image instanceof Buffer) {
+    if (typeof req.body.image !== 'string') {
       try {
-        const resizedImageBuffer = await sharp(image)
-          .resize({ fit: 'fill', width: 110, height: 110 })
-          .toBuffer();
-        const data = await s3Controller.uploadFile(
-          resizedImageBuffer,
-          `profile/${id}/${req.file?.originalname}`
-        );
-        profileUpdateBody.image = data.Key;
-      } catch (error) {
-        return res
-          .status(500)
-          .json({ message: '이미지 업로드에 실패하였습니다.' });
+        const oldInfo: { image: string } = await knex('user_profile')
+          .select('image')
+          .where({ user_id: id })
+          .first();
+
+        if (!!oldInfo.image) {
+          await s3Controller.deleteObject(oldInfo.image);
+        }
+
+        profileUpdateBody.image = null;
+      } catch (error) {}
+
+      if (image instanceof Buffer) {
+        try {
+          const resizedImageBuffer = await sharp(image)
+            .resize({ fit: 'fill', width: 110, height: 110 })
+            .toBuffer();
+          const data = await s3Controller.uploadFile(
+            resizedImageBuffer,
+            `profile/${id}/${req.file?.originalname}`
+          );
+          profileUpdateBody.image = data.Key;
+        } catch (error) {
+          return res
+            .status(500)
+            .json({ message: '이미지 업로드에 실패하였습니다.' });
+        }
       }
     }
 
