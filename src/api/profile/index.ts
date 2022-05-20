@@ -26,18 +26,7 @@ const knex: Knex = require('knex')({
   },
 });
 
-interface ProfileStringKeys {
-  [keys: string]:
-    | null
-    | boolean
-    | undefined
-    | string
-    | string[]
-    | { name: string; awarededAt: string }[]
-    | number[];
-}
-
-interface OptionalProfile extends ProfileStringKeys {
+interface ProfileOptions {
   image?: string | null;
   positions?: string | number[];
   technologies?: string | number[];
@@ -46,17 +35,14 @@ interface OptionalProfile extends ProfileStringKeys {
   links?: string | string[];
 }
 
-interface Profile extends OptionalProfile {
+interface Profile extends ProfileOptions {
   id: string;
   isMe: boolean;
   nickname: string;
   isOpen: boolean;
 }
 
-const getProfileInfo = async (
-  id: string,
-  requester: string = id
-): Promise<Profile | null> => {
+const getProfileInfo = async (id: string, requester: string = id) => {
   const isMe = id === requester;
 
   try {
@@ -113,7 +99,7 @@ const getProfileInfo = async (
       return baseInfo;
     }
 
-    const optionalInfo: OptionalProfile = {
+    const optionalInfo: ProfileOptions = {
       ...(!!awards && { awards: JSON.parse(awards) }),
       ...(!!links && { links: JSON.parse(links) }),
       ...(!!introduction && { introduction }),
@@ -156,27 +142,27 @@ app.patch(
   multer({ storage: memoryStorage() }).single('image'),
   async (req: Request, res: Response) => {
     const id: string = res.locals.email;
-    const body: Profile = JSON.parse(JSON.stringify(req.body));
+    const body: { [keys: string]: string } = JSON.parse(
+      JSON.stringify(req.body)
+    );
     const { positions, technologies, introduction, awards, links } = body;
     const image: Buffer | string | null =
       req.file?.buffer || req.body?.image || null;
 
-    const init: OptionalProfile = {};
-    const profileUpdateBody = Object.keys({
+    const profileUpdateBody = Object.entries({
       positions,
       technologies,
       introduction,
       awards,
       links,
-    }).reduce((profileUpdateBody, requestKey) => {
-      profileUpdateBody[requestKey] = body[requestKey] || null;
+    }).reduce((profileUpdateBody, [key, value]) => {
+      profileUpdateBody[key] = value || null;
       return profileUpdateBody;
-    }, init);
+    }, {} as { [keys: string]: string | null });
 
     if (!!awards) {
-      const parsedAwards: { name: string; awardedAt: string }[] = JSON.parse(
-        awards as string
-      );
+      const parsedAwards: { name: string; awardedAt: string }[] =
+        JSON.parse(awards);
 
       parsedAwards.sort((a, b) => {
         return a.awardedAt.localeCompare(b.awardedAt);
@@ -184,7 +170,8 @@ app.patch(
 
       profileUpdateBody.awards = JSON.stringify(parsedAwards);
     }
-    if (typeof req.body.image !== 'string') {
+
+    if (typeof image !== 'string') {
       try {
         const oldInfo: { image: string } = await knex('user_profile')
           .select('image')
