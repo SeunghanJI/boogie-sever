@@ -112,8 +112,8 @@ const getComments = (id: string): Promise<Comment[]> => {
       'board_comment.uploaded_at as uploadedAt',
       'user_profile.image as profileImageURL'
     )
-    .innerJoin('user', 'user.id', 'board_comment.user_id')
-    .innerJoin('user_profile', 'user_profile.user_id', 'board_comment.user_id')
+    .leftJoin('user', 'user.id', 'board_comment.user_id')
+    .leftJoin('user_profile', 'user_profile.user_id', 'board_comment.user_id')
     .where({
       'board_comment.board_content_id': id,
       'board_comment.is_deleted': false,
