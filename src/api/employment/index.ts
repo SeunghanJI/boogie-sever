@@ -77,7 +77,7 @@ const queryStringToStringArray = (
     return null;
   }
 
-  return [...([queryString] as string[])];
+  return [...(queryString as string[])];
 };
 
 app.get(
