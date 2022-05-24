@@ -29,8 +29,8 @@ export const checkObjectValueEmpty = (data: any = {}): boolean => {
     return false;
   }
 
-  let isSatisfied = Object.values(data).every(
-    (value) => value === undefined || value === null || value === ''
+  let isSatisfied = Object.values(data).some(
+    (value: any) => value === undefined || value === null || value === ''
   );
   return !isSatisfied;
 };
