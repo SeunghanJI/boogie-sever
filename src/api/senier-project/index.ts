@@ -526,14 +526,15 @@ app.get('/detail/design', async (req: Request, res: Response) => {
   }
 
   try {
-    const { projectDesign }: { projectDesign: string } = await knex(
+    const { projectDesignKey }: { projectDesignKey: string } = await knex(
       'senier_project'
     )
-      .select('project_design as projectDesign')
+      .select('project_design as projectDesignKey')
       .where({ id })
       .first();
+    const projectDesignURL = await s3Controller.getObjectURL(projectDesignKey);
 
-    res.status(200).json({ projectDesign });
+    res.status(200).json({ projectDesign: projectDesignURL });
   } catch (error: any) {
     if (!isNaN(error.code) && !!error.message) {
       return res.status(error.code).json({ message: error.message });
