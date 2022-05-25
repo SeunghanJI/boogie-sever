@@ -27,12 +27,12 @@ const knex: Knex = require('knex')({
 });
 
 interface ProfileOptions {
-  image?: string | null;
-  positions?: string | number[];
-  technologies?: string | number[];
+  image?: string;
+  positions?: number[];
+  technologies?: number[];
   introduction?: string;
-  awards?: string | { name: string; awarededAt: string }[];
-  links?: string | string[];
+  awards?: { name: string; awarededAt: string }[];
+  links?: string[];
 }
 
 interface Profile extends ProfileOptions {
@@ -136,7 +136,7 @@ const getProfileInfo = async (id: string, requester: string = id) => {
   }
 };
 
-app.patch(
+app.put(
   '/',
   verifyAccessToken,
   multer({ storage: memoryStorage() }).single('image'),
