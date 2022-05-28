@@ -11,7 +11,7 @@ import {
   verifyEmail,
   generatedUniqueID,
 } from '../../utils';
-import { verifyAccessToken } from '../../token/index';
+import { verifyAccessToken, getUserEmail } from '../../token/index';
 import { REGION_MAP } from '../category/index';
 import s3Controller from '../../s3';
 import { setViewCount } from '../../view/index';
@@ -38,23 +38,26 @@ const knex: Knex = require('knex')({
 
 type QueryElement = string | string[] | undefined;
 
-interface EmploymentModel {
+interface Employment extends EmploymentOptions {
   id: string;
   userId: string;
   position: string;
-  addressInformation: string;
-  viewCount: string;
   companyName: string;
   title: string;
   content: string;
   image: string;
-  deadline: string;
 }
 
-interface EmploymentBody extends EmploymentModel {
+interface EmploymentOptions {
+  addressInformation?: string;
+  applicant?: string;
   positionId?: number;
   address?: string;
   region?: string;
+  hasAuthority?: Boolean;
+  isApplied?: Boolean;
+  deadline?: string;
+  viewCount?: string;
 }
 
 const isJsonString = (str: string) => {
@@ -76,8 +79,11 @@ const queryStringToStringArray = (
   if (!queryString) {
     return null;
   }
+  if (typeof queryString === 'string') {
+    return [queryString];
+  }
 
-  return [...(queryString as string[])];
+  return queryString;
 };
 
 app.get(
@@ -85,47 +91,92 @@ app.get(
   (req: Request, res: Response, next: NextFunction) => {
     setViewCount(req, res, next, 'job_posting');
   },
+  getUserEmail,
   async (req: Request, res: Response) => {
-    if (typeof req.query?.id !== 'string') {
+    const email: string = res.locals.email || '';
+    const id = req.query?.id;
+
+    if (typeof id !== 'string') {
       return res.status(400).json({ message: '잘못된 요청입니다.' });
     }
 
-    const id = req.query?.id;
     try {
-      const employmentInfo: EmploymentBody = await knex('job_posting')
-        .select(
-          'job_posting.id as id',
-          'user_id as userId',
-          'company_name as companyName',
-          'title',
-          'content',
-          'deadline',
-          'image',
-          'job_category.name as position',
-          'address_information as addressInformation'
-        )
-        .innerJoin('job_category', 'job_category.id', 'field')
-        .where({ 'job_posting.id': id })
-        .first();
+      const promiseAllArr = [
+        knex('job_posting')
+          .select(
+            'job_posting.id as id',
+            'user_id as userId',
+            'company_name as companyName',
+            'title',
+            'content',
+            'deadline',
+            'image',
+            'job_category.name as position',
+            'applicant',
+            'address_information as address'
+          )
+          .innerJoin('job_category', 'job_category.id', 'field')
+          .where({ 'job_posting.id': id })
+          .first(),
+      ];
+      if (!!email) {
+        promiseAllArr.push(
+          knex('user')
+            .select('is_admin as isAdmin')
+            .where({ id: email })
+            .first()
+        );
+      }
+      const [rawEmploymentInfo, user] = await Promise.all(promiseAllArr);
 
-      if (!employmentInfo) {
+      if (!rawEmploymentInfo) {
         return res.status(404).json({ message: '리소스를 찾을 수 없습니다.' });
       }
 
-      const [province, city]: string[] = splitJsonAddress(
-        employmentInfo.addressInformation
-      );
-      const imageURL = await s3Controller.getObjectURL(employmentInfo.image);
+      const {
+        userId,
+        image,
+        companyName,
+        title,
+        content,
+        applicant,
+        address,
+        deadline,
+        position,
+      }: Employment = { ...rawEmploymentInfo };
+      const { isAdmin }: { isAdmin: boolean } = user || { isAdmin: false };
 
-      if (!imageURL) {
-        return res.status(500).json({ message: '서버요청에 실패하였습니다.' });
+      const employmentInfo: Employment = {
+        ...((email === userId || !!isAdmin) && { hasAuthority: true }),
+        id,
+        userId,
+        image,
+        companyName,
+        address,
+        title,
+        content,
+        position,
+      };
+
+      try {
+        const imageURL = await s3Controller.getObjectURL(image);
+        employmentInfo.image = imageURL || image;
+      } catch (error) {
+        res.status(500).json({ message: 'S3 연결 실패' });
       }
 
-      employmentInfo.image = imageURL;
+      if (
+        !!applicant &&
+        (JSON.parse(applicant) as Array<string>).find(
+          (applicant) => applicant === email
+        )
+      ) {
+        employmentInfo.isApplied = true;
+      }
+
+      const [province, city]: string[] = splitJsonAddress(address as string);
       employmentInfo.region = `${province} ${city}`;
-      employmentInfo.deadline = dayjs(employmentInfo.deadline).format(
-        'YYYY.MM.DD'
-      );
+      employmentInfo.deadline = dayjs(deadline).format('YYYY.MM.DD');
 
       res.status(200).json(employmentInfo);
     } catch (error) {
@@ -169,7 +220,7 @@ app.get('/list', async (req: Request, res: Response) => {
   }
 
   try {
-    const rawEmploymentList: EmploymentModel[] = await EmploymentListQuery;
+    const rawEmploymentList: Employment[] = await EmploymentListQuery;
     const jobPostingList = await Promise.all(
       rawEmploymentList.map(
         async ({
@@ -181,12 +232,13 @@ app.get('/list', async (req: Request, res: Response) => {
           viewCount,
         }) => {
           const imageURL = await s3Controller.getObjectURL(image);
-          const [province, city]: string[] =
-            splitJsonAddress(addressInformation);
+          const [province, city]: string[] = splitJsonAddress(
+            addressInformation as string
+          );
           const jobPostingForm = {
+            ...(!!imageURL && { image: imageURL }),
             id,
             companyName,
-            ...(!!imageURL && { image: imageURL }),
             position,
             viewCount,
             region: `${province} ${city}`,
@@ -225,10 +277,39 @@ app.get(
       }
 
       const applicantList: string[] = JSON.parse(jobPosting?.applicant || '[]');
-      const applicantInformation = {
-        ...(jobPosting.userId === email && { applicantList }),
+      const applicantInformation: {
+        applicantCount: number;
+        applicantList?: { id: string; profileImage?: string }[];
+      } = {
         applicantCount: applicantList.length,
       };
+
+      if (jobPosting.userId === email) {
+        const applicantsProfiles: { id: string; image?: string }[] = await knex(
+          'user_profile'
+        )
+          .select('user_id as id', 'image')
+          .whereIn('user_id', applicantList);
+        applicantInformation.applicantList = await Promise.all(
+          applicantsProfiles.map(async (profile) => {
+            const applicantsProfiles: { id: string; profileImage?: string } = {
+              id: profile.id,
+            };
+
+            if (!!profile.image) {
+              const profileImage = await s3Controller.getObjectURL(
+                profile.image
+              );
+
+              if (!!profileImage) {
+                applicantsProfiles.profileImage = profileImage;
+              }
+            }
+
+            return applicantsProfiles;
+          })
+        );
+      }
 
       res.status(200).json(applicantInformation);
     } catch (error) {
@@ -243,7 +324,7 @@ app.post(
   verifyAccessToken,
   async (req: Request, res: Response) => {
     const email: string = res.locals.email;
-    const body: EmploymentBody = JSON.parse(JSON.stringify(req.body));
+    const body: Employment = JSON.parse(JSON.stringify(req.body));
     const { companyName, title, content, address, deadline, positionId } = body;
     const ONE_DAY_TIME = 24 * 60 * 60 * 10 * 100;
 
