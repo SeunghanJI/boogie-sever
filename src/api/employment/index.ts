@@ -113,7 +113,7 @@ app.get(
             'image',
             'job_category.name as position',
             'applicant',
-            'address_information as address'
+            'address_information as addressInformation'
           )
           .innerJoin('job_category', 'job_category.id', 'field')
           .where({ 'job_posting.id': id })
@@ -140,7 +140,7 @@ app.get(
         title,
         content,
         applicant,
-        address,
+        addressInformation,
         deadline,
         position,
       }: Employment = { ...rawEmploymentInfo };
@@ -152,7 +152,7 @@ app.get(
         userId,
         image,
         companyName,
-        address,
+        addressInformation,
         title,
         content,
         position,
@@ -174,7 +174,9 @@ app.get(
         employmentInfo.isApplied = true;
       }
 
-      const [province, city]: string[] = splitJsonAddress(address as string);
+      const [province, city]: string[] = splitJsonAddress(
+        addressInformation as string
+      );
       employmentInfo.region = `${province} ${city}`;
       employmentInfo.deadline = dayjs(deadline).format('YYYY.MM.DD');
 
