@@ -116,7 +116,7 @@ app.get(
             'address_information as addressInformation'
           )
           .innerJoin('job_category', 'job_category.id', 'field')
-          .where({ 'job_posting.id': id })
+          .where({ 'job_posting.id': id, is_deleted: false })
           .first(),
       ];
       if (!!email) {
@@ -201,6 +201,7 @@ app.get('/list', async (req: Request, res: Response) => {
     )
     .innerJoin('job_category', 'job_posting.field', 'job_category.id')
     .where('deadline', '>=', `${dayjs().format('YYYYMMDD')}`)
+    .andWhere({ is_deleted: false })
     .orderByRaw('RAND()');
 
   const regionFilterArray = queryStringToStringArray(region as QueryElement);
@@ -414,7 +415,7 @@ app.post(
           .first(),
       ]);
 
-      if (!user.is_student) {
+      if (!user.is_student || jobPosting.userId === email) {
         return res.status(403).json({ message: '지원 하실 수 없습니다.' });
       }
 
@@ -447,5 +448,140 @@ app.post(
     }
   }
 );
+
+app.patch(
+  '/',
+  verifyAccessToken,
+  multer({ storage: memoryStorage() }).single('image'),
+  async (req: Request, res: Response) => {
+    const email: string = res.locals.email;
+    const { id, ...body } = req.body;
+    const image: Buffer | undefined = req.file?.buffer;
+
+    if (
+      !id ||
+      !checkRequiredProperties(
+        [
+          'title',
+          'content',
+          'companyName',
+          'address',
+          'deadline',
+          'positionId',
+        ],
+        body
+      )
+    ) {
+      return res.status(400).json({ message: '잘못된 요청입니다.' });
+    }
+
+    const {
+      title,
+      content,
+      companyName,
+      address,
+      deadline,
+      positionId,
+    }: Employment = body;
+
+    try {
+      const [requesterInfo, author]: [{ isAdmin: boolean }, { id: string }] =
+        await Promise.all([
+          knex('user')
+            .select('is_admin as isAdmin')
+            .where({ id: email })
+            .first(),
+          knex('job_posting').select('user_id as id').where({ id }).first(),
+        ]);
+
+      if (!requesterInfo.isAdmin && author.id !== email) {
+        return res.status(403).json({ message: '수정 권한이 없습니다.' });
+      }
+    } catch (error) {
+      throw error;
+    }
+
+    const updateBody: {
+      title: string;
+      content: string;
+      company_name: string;
+      address_information?: string | null;
+      deadline?: string;
+      field?: number;
+      image?: string | null;
+    } = {
+      title,
+      content,
+      deadline,
+      company_name: companyName,
+      address_information: address,
+      field: positionId,
+    };
+
+    if (!!image) {
+      try {
+        const oldInfo: { image: string } = await knex('user_profile')
+          .select('image')
+          .where({ user_id: id })
+          .first();
+
+        if (!!oldInfo.image) {
+          await s3Controller.deleteObject(oldInfo.image);
+        }
+
+        updateBody.image = null;
+      } catch (error) {}
+
+      try {
+        const resizedImageBuffer = await sharp(image)
+          .resize({ fit: 'fill', width: 1080, height: 790 })
+          .toBuffer();
+        const data = await s3Controller.uploadFile(
+          resizedImageBuffer,
+          `employment/${uuidv4()}.jpg`
+        );
+        updateBody.image = data.Key;
+      } catch (error) {
+        return res
+          .status(500)
+          .json({ message: '이미지 업로드에 실패하였습니다.' });
+      }
+    }
+
+    try {
+      await knex('job_posting').update(updateBody).where({ id });
+      res.status(200).json({ isUpdated: true });
+    } catch (error) {
+      res.status(500).json({ message: '서버요청에 실패하였습니다.' });
+    }
+  }
+);
+
+app.delete('/:id', verifyAccessToken, async (req: Request, res: Response) => {
+  const email: string = res.locals.email;
+  const id = req.params.id;
+
+  if (!id) {
+    return res.status(400).json({ message: '잘못된 요청입니다.' });
+  }
+
+  try {
+    const [requester, author]: [{ isAdmin: boolean }, { userId: string }] =
+      await Promise.all([
+        knex('user').select('is_admin as isAdmin').where({ id: email }).first(),
+        knex('job_posting').select('user_id as userId').where({ id }).first(),
+      ]);
+
+    if (!requester.isAdmin && author.userId !== email) {
+      return res.status(403).json({ message: '수정 권한이 없습니다.' });
+    }
+
+    await knex('job_posting').update({ is_deleted: true }).where({ id });
+
+    res.status(200).json({ isDeleted: true });
+  } catch (error) {
+    res.status(500).json({ message: '서버요청에 실패하였습니다.' });
+  }
+});
 
 export default app;
