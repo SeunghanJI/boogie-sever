@@ -41,7 +41,6 @@ type QueryElement = string | string[] | undefined;
 interface Employment extends EmploymentOptions {
   id: string;
   userId: string;
-  position: string;
   companyName: string;
   title: string;
   content: string;
@@ -49,6 +48,7 @@ interface Employment extends EmploymentOptions {
 }
 
 interface EmploymentOptions {
+  position?: string;
   addressInformation?: string;
   applicant?: string;
   positionId?: number;
@@ -58,6 +58,7 @@ interface EmploymentOptions {
   isApplied?: Boolean;
   deadline?: string;
   viewCount?: string;
+  positionName?: string;
 }
 
 const isJsonString = (str: string) => {
@@ -111,7 +112,8 @@ app.get(
             'content',
             'deadline',
             'image',
-            'job_category.name as position',
+            'job_posting.field as positionId',
+            'job_category.name as positionName',
             'applicant',
             'address_information as addressInformation'
           )
@@ -142,7 +144,8 @@ app.get(
         applicant,
         addressInformation,
         deadline,
-        position,
+        positionId,
+        positionName,
       }: Employment = { ...rawEmploymentInfo };
       const { isAdmin }: { isAdmin: boolean } = user || { isAdmin: false };
 
@@ -155,7 +158,8 @@ app.get(
         addressInformation,
         title,
         content,
-        position,
+        positionId,
+        positionName,
       };
 
       try {
