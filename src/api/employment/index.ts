@@ -454,12 +454,13 @@ app.post(
 );
 
 app.patch(
-  '/',
+  '/:id',
   verifyAccessToken,
   multer({ storage: memoryStorage() }).single('image'),
   async (req: Request, res: Response) => {
     const email: string = res.locals.email;
-    const { id, ...body } = req.body;
+    const id = req.params.id;
+    const body = JSON.parse(JSON.stringify(req.body));
     const image: Buffer | undefined = req.file?.buffer;
 
     if (
