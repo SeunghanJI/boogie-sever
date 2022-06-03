@@ -71,10 +71,9 @@ export const getUserEmail = (
   req: Request,
   res: Response,
   next: NextFunction
-): void => {
+) => {
   const authorization: string = req.headers.authorization || '';
   const jwtSecretKey: string = process.env.jWT_SECRET || '';
-
   if (!authorization) {
     next();
   } else {
@@ -86,6 +85,13 @@ export const getUserEmail = (
       res.locals.email = data.email;
       next();
     } catch (error: unknown) {
+      if (error instanceof Error && error.name === 'TokenExpiredError') {
+        return res.status(419).json({
+          message: `만료된 엑세스 토큰입니다.`,
+          code: 'expired',
+          type: 'access',
+        });
+      }
       next();
     }
   }
