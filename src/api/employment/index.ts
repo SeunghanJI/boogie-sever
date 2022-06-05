@@ -589,4 +589,34 @@ app.delete('/:id', verifyAccessToken, async (req: Request, res: Response) => {
   }
 });
 
+app.delete(
+  '/applicant/:id',
+  verifyAccessToken,
+  async (req: Request, res: Response) => {
+    const email: string = res.locals.email;
+    const id = req.params.id;
+
+    try {
+      const { applicants }: { applicants: string } = await knex('job_posting')
+        .select('applicant as applicants')
+        .where({ id })
+        .first();
+
+      const deletedRequesterArr: string[] = JSON.parse(applicants)?.filter(
+        (applicant: string) => applicant !== email
+      );
+
+      const applicant = !!deletedRequesterArr?.length
+        ? JSON.stringify(deletedRequesterArr)
+        : null;
+
+      await knex('job_posting').update({ applicant }).where({ id });
+
+      res.status(200).json({ isDeleted: true });
+    } catch (error) {
+      res.status(500).json({ message: '서버요청에 실패하였습니다.' });
+    }
+  }
+);
+
 export default app;
