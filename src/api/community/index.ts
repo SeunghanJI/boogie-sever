@@ -44,6 +44,7 @@ interface BoardContent {
   profileImageURL?: string | null;
   uploadedAt?: string;
   totalCommentLikes?: number;
+  isMe?: boolean;
 }
 interface Comment {
   id: number;
@@ -85,14 +86,22 @@ app.post('/', verifyAccessToken, async (req: Request, res: Response) => {
   }
 });
 
-const formatComments = (comments: Comment[]): Promise<Comment>[] => {
+const formatComments = (
+  comments: Comment[],
+  email: string
+): Promise<Comment>[] => {
   return comments.map(async (comment: Comment) => {
+    let isMe: boolean = false;
+    if (email === comment.userId) {
+      isMe = true;
+    }
     return {
       id: comment.id,
       userId: comment.userId,
       userNickname: comment.userNickname,
       content: comment.content,
       fromNowWhileAgoPosted: dayjs(`${comment.uploadedAt}`).fromNow(),
+      ...(isMe && { isMe }),
       ...(!!comment.profileImageURL && {
         profileImageURL: (
           (await s3Controller.getObjectURL(comment.profileImageURL)) as string
@@ -140,7 +149,7 @@ app.post('/comment', verifyAccessToken, async (req: Request, res: Response) => {
 
     const originalComments: Comment[] = await getComments(body.id);
     const comments: Comment[] = await Promise.all(
-      formatComments(originalComments)
+      formatComments(originalComments, email)
     );
 
     res.status(201).json({ comments });
@@ -169,6 +178,91 @@ const checkLiked = (id: string, email: string): Promise<boolean> => {
 
   return isLiked;
 };
+
+app.patch('/', verifyAccessToken, async (req: Request, res: Response) => {
+  const body = req.body;
+
+  if (!checkRequiredProperties(['id', 'title', 'content'], body)) {
+    return res.status(400).json({ message: '잘못된 요청입니다.' });
+  }
+
+  const email: string = res.locals.email;
+
+  try {
+    const hasAuthority = await knex('board_content')
+      .select('user_id')
+      .where({ user_id: email })
+      .first();
+
+    const { is_admin: isAdmin } = await knex('user')
+      .select('is_admin')
+      .where({ id: email })
+      .first();
+
+    if (!hasAuthority && !isAdmin) {
+      return res.status(400).json({ message: '수정 할 권한이 없습니다.' });
+    }
+
+    await knex('board_content')
+      .update({ title: body.title, content: body.content })
+      .where({ id: body.id });
+
+    res.status(200).json({ isUpdated: true });
+  } catch (error: any) {
+    console.log(error);
+    res.status(500).json({ message: '서버요청에 실패하였습니다.' });
+  }
+});
+
+app.patch(
+  '/comment',
+  verifyAccessToken,
+  async (req: Request, res: Response) => {
+    const body = req.body;
+
+    if (!checkRequiredProperties(['id', 'content'], body)) {
+      return res.status(400).json({ message: '잘못된 요청입니다.' });
+    }
+
+    const email: string = res.locals.email;
+
+    try {
+      const hasAuthority = await knex('board_comment')
+        .select('user_id')
+        .where({ user_id: email })
+        .first();
+
+      const { is_admin: isAdmin } = await knex('user')
+        .select('is_admin')
+        .where({ id: email })
+        .first();
+
+      if (!hasAuthority && !isAdmin) {
+        return res.status(400).json({ message: '수정 할 권한이 없습니다.' });
+      }
+
+      await knex('board_comment')
+        .update({ content: body.content })
+        .where({ id: body.id });
+
+      const commentId = await knex('board_comment')
+        .select('board_content_id')
+        .where({ id: body.id })
+        .first();
+
+      const originalComments: Comment[] = await getComments(
+        commentId.board_content_id
+      );
+      const comments: Comment[] = await Promise.all(
+        formatComments(originalComments, email)
+      );
+
+      res.status(201).json({ comments });
+    } catch (error: any) {
+      res.status(500).json({ message: '서버요청에 실패하였습니다.' });
+    }
+  }
+);
 
 app.patch(
   '/like/:id',
@@ -205,6 +299,77 @@ app.patch(
         return res.status(error.code).json({ message: error.message });
       }
 
+      res.status(500).json({ message: '서버요청에 실패하였습니다.' });
+    }
+  }
+);
+
+app.delete('/:id', verifyAccessToken, async (req: Request, res: Response) => {
+  const id: string = req.params.id;
+  const email: string = res.locals.email;
+
+  try {
+    const hasAuthority = await knex('board_comment')
+      .select('user_id')
+      .where({ user_id: email })
+      .first();
+
+    const { is_admin: isAdmin } = await knex('user')
+      .select('is_admin')
+      .where({ id: email })
+      .first();
+
+    if (!hasAuthority && !isAdmin) {
+      return res.status(400).json({ message: '삭제 할 권한이 없습니다.' });
+    }
+
+    await knex('board_content').update({ is_deleted: 1 }).where({ id });
+
+    res.status(200).json({ isDeleted: true });
+  } catch (error: any) {
+    res.status(500).json({ message: '서버요청에 실패하였습니다.' });
+  }
+});
+
+app.delete(
+  '/comment/:id',
+  verifyAccessToken,
+  async (req: Request, res: Response) => {
+    const id: string = req.params.id;
+    const email: string = res.locals.email;
+
+    try {
+      const hasAuthority = await knex('board_comment')
+        .select('user_id')
+        .where({ user_id: email })
+        .first();
+
+      const { is_admin: isAdmin } = await knex('user')
+        .select('is_admin')
+        .where({ id: email })
+        .first();
+
+      if (!hasAuthority && !isAdmin) {
+        return res.status(400).json({ message: '삭제 할 권한이 없습니다.' });
+      }
+
+      await knex('board_comment').update({ is_deleted: true }).where({ id });
+
+      const { boardContentId } = await knex('board_comment')
+        .select('board_content_id as boardContentId')
+        .where({ id })
+        .first();
+      const originalComments: Comment[] = await getComments(boardContentId);
+      const comments: Comment[] = await Promise.all(
+        formatComments(originalComments, email)
+      );
+      const { commentCount } = (await knex('board_comment')
+        .count('board_content_id as commentCount')
+        .where({ board_content_id: boardContentId, is_deleted: 0 })
+        .first()) as { commentCount: number };
+
+      res.status(201).json({ comments, commentCount });
+    } catch (error: any) {
       res.status(500).json({ message: '서버요청에 실패하였습니다.' });
     }
   }
@@ -266,8 +431,8 @@ app.get(
           'board_content.uploaded_at as uploadedAt',
           'user_profile.image as profileImageURL'
         )
-        .innerJoin('user', 'user.id', 'board_content.user_id')
-        .innerJoin(
+        .leftJoin('user', 'user.id', 'board_content.user_id')
+        .leftJoin(
           'user_profile',
           'user_profile.user_id',
           'board_content.user_id'
@@ -277,6 +442,10 @@ app.get(
           'board_content.is_deleted': false,
         })
         .first();
+
+      if (email === originalBoardContent.userId) {
+        originalBoardContent.isMe = true;
+      }
 
       const content = await formatBoardContent(email, originalBoardContent);
 
@@ -305,10 +474,11 @@ const getBoardContents = (
       'board_content.uploaded_at as uploadedAt',
       'user_profile.image as profileImageURL'
     )
-    .innerJoin('user', 'user.id', 'board_content.user_id')
-    .innerJoin('user_profile', 'user_profile.user_id', 'board_content.user_id')
+    .leftJoin('user', 'user.id', 'board_content.user_id')
+    .leftJoin('user_profile', 'user_profile.user_id', 'board_content.user_id')
     .where({
       'board_content.category_id': categoryId,
+      'board_content.is_deleted': false,
     })
     .orderBy('board_content.uploaded_at', 'desc')
     .limit(PAGE_LIMIT)
@@ -399,14 +569,11 @@ app.get('/best-pick', async (req: Request, res: Response) => {
         'board_content.uploaded_at as uploadedAt',
         'user_profile.image as profileImageURL'
       )
-      .innerJoin('user', 'user.id', 'board_content.user_id')
-      .innerJoin(
-        'user_profile',
-        'user_profile.user_id',
-        'board_content.user_id'
-      )
+      .leftJoin('user', 'user.id', 'board_content.user_id')
+      .leftJoin('user_profile', 'user_profile.user_id', 'board_content.user_id')
       .where({
         'board_content.category_id': categoryId,
+        'board_content.is_deleted': false,
       })
       .andWhere('board_content.uploaded_at', '>=', yesterday)
       .orderBy('board_content.uploaded_at');
@@ -429,8 +596,9 @@ app.get('/best-pick', async (req: Request, res: Response) => {
   }
 });
 
-app.get('/comments', async (req: Request, res: Response) => {
+app.get('/comments', getUserEmail, async (req: Request, res: Response) => {
   const id: string = req.query.id as string;
+  const email: string = res.locals.email;
 
   if (!id) {
     return res.status(400).json({ message: '잘못된 요청입니다.' });
@@ -439,7 +607,7 @@ app.get('/comments', async (req: Request, res: Response) => {
   try {
     const originalComments: Comment[] = await getComments(id);
     const comments: Comment[] = await Promise.all(
-      formatComments(originalComments)
+      formatComments(originalComments, email)
     );
 
     res.status(200).json({ comments });
