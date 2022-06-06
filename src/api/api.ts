@@ -25,4 +25,7 @@ app.use('/community', apiCommunity);
 import apiProfile from './profile/index';
 app.use('/profile', apiProfile);
 
+import apiHelp from './help/index';
+app.use('/help', apiHelp);
+
 export default app;
