@@ -215,56 +215,6 @@ app.patch('/', verifyAccessToken, async (req: Request, res: Response) => {
 });
 
 app.patch(
-  '/comment',
-  verifyAccessToken,
-  async (req: Request, res: Response) => {
-    const body = req.body;
-
-    if (!checkRequiredProperties(['id', 'content'], body)) {
-      return res.status(400).json({ message: '잘못된 요청입니다.' });
-    }
-
-    const email: string = res.locals.email;
-
-    try {
-      const hasAuthority = await knex('board_comment')
-        .select('user_id')
-        .where({ user_id: email })
-        .first();
-
-      const { is_admin: isAdmin } = await knex('user')
-        .select('is_admin')
-        .where({ id: email })
-        .first();
-
-      if (!hasAuthority && !isAdmin) {
-        return res.status(400).json({ message: '수정 할 권한이 없습니다.' });
-      }
-
-      await knex('board_comment')
-        .update({ content: body.content })
-        .where({ id: body.id });
-
-      const commentId = await knex('board_comment')
-        .select('board_content_id')
-        .where({ id: body.id })
-        .first();
-
-      const originalComments: Comment[] = await getComments(
-        commentId.board_content_id
-      );
-      const comments: Comment[] = await Promise.all(
-        formatComments(originalComments, email)
-      );
-
-      res.status(201).json({ comments });
-    } catch (error: any) {
-      res.status(500).json({ message: '서버요청에 실패하였습니다.' });
-    }
-  }
-);
-
-app.patch(
   '/like/:id',
   verifyAccessToken,
   async (req: Request, res: Response) => {
@@ -424,6 +374,7 @@ app.get(
       const originalBoardContent: BoardContent = await knex('board_content')
         .select(
           'board_content.id as id',
+          'board_content.category_id as categoryId',
           'board_content.user_id as userId',
           'user.nickname as userNickname',
           'board_content.title as title',
@@ -451,6 +402,7 @@ app.get(
 
       res.status(200).json({ content });
     } catch (error: any) {
+      console.log(error);
       if (!isNaN(error.code) && !!error.message) {
         return res.status(error.code).json({ message: error.message });
       }
