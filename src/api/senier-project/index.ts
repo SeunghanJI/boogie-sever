@@ -33,7 +33,7 @@ const knex: Knex = require('knex')({
 
 interface SenierProjectTeamMember {
   name: string;
-  uniID?: string;
+  uniId?: string;
   introduction: string;
   image?: string;
   id?: string;
@@ -80,7 +80,7 @@ const checkTeamMembersRequireProperties = (
   teamMembers: SenierProjectTeamMember[]
 ): boolean => {
   return !teamMembers.every((member: SenierProjectTeamMember) =>
-    checkRequiredProperties(['name', 'uniID', 'introduction'], member)
+    checkRequiredProperties(['name', 'uniId', 'introduction'], member)
   );
 };
 
@@ -95,12 +95,12 @@ const setTeamMembers = (
   return teamMembers.map(async (member) => {
     const email: { id: string } = await knex('user')
       .select('id')
-      .where({ is_student: 1, uni_id: member.uniID })
+      .where({ is_student: 1, uni_id: member.uniId })
       .first();
 
     return knex('team_member').insert({
       id,
-      uni_id: member.uniID,
+      uni_id: member.uniId,
       name: member.name,
       introduction: member.introduction,
       profile_image: member.image,
@@ -192,7 +192,7 @@ app.post(
       !checkRequiredProperties(
         [
           'groupName',
-          'classID',
+          'classId',
           'year',
           'teamMember',
           'link',
@@ -253,7 +253,7 @@ app.post(
         .select('group_name as groupName')
         .where({
           year: body.year,
-          class_id: body.classID,
+          class_id: body.classId,
           group_name: body.groupName,
         })
         .first()) || { groupName: false };
@@ -288,7 +288,7 @@ app.post(
           year: senierProject.year,
           link: JSON.stringify(senierProject.link),
           group_name: senierProject.groupName,
-          class_id: senierProject.classID,
+          class_id: senierProject.classId,
           project_design: senierProject.projectDesign,
           plattform: JSON.stringify(
             (senierProject.plattform as number[]).sort(sortAsc)
@@ -368,7 +368,7 @@ app.patch(
       !checkRequiredProperties(
         [
           'groupName',
-          'classID',
+          'classId',
           'year',
           'teamMember',
           'link',
@@ -416,7 +416,7 @@ app.patch(
       await Promise.all([
         knex('senier_project')
           .update({
-            class_id: senierProject.classID,
+            class_id: senierProject.classId,
             group_name: senierProject.groupName,
             year: senierProject.year,
             link: JSON.stringify(senierProject.link),
@@ -429,13 +429,13 @@ app.patch(
           async (member: SenierProjectTeamMember) => {
             const email: { id: string } = await knex('user')
               .select('id')
-              .where({ is_student: 1, uni_id: member.uniID })
+              .where({ is_student: 1, uni_id: member.uniId })
               .first();
 
             return knex('team_member')
               .insert({
                 id: senierProject.id,
-                uni_id: member.uniID,
+                uni_id: member.uniId,
                 name: member.name,
                 introduction: member.introduction,
                 profile_image: member.image,
@@ -626,7 +626,7 @@ const formatSenierProjectList = async (
 };
 
 app.get('/list', async (req: Request, res: Response) => {
-  const { year, name, plattform, technology, classID } = req.query;
+  const { year, name, plattform, technology, classId } = req.query;
 
   if (!year) {
     return res.status(400).json({ message: '연차정보를 입력해주세요.' });
@@ -650,9 +650,9 @@ app.get('/list', async (req: Request, res: Response) => {
     .innerJoin('senier_project', 'senier_project.id', 'team_member.id')
     .where({ 'senier_project.year': year });
 
-  if (!!classID) {
-    getSenierProjects.where({ class_id: classID });
-    getTeamMembers.where({ 'senier_project.class_id': classID });
+  if (!!classId) {
+    getSenierProjects.where({ class_id: classId });
+    getTeamMembers.where({ 'senier_project.class_id': classId });
   }
 
   if (!!plattformOption) {
@@ -725,7 +725,7 @@ const formatTeamMemberList = async (
         introduction: memberInfo.introduction,
         ...(!!imageURL && { image: imageURL.split('?')[0] }),
         ...(!!memberInfo.id && { id: memberInfo.id }),
-        ...(!!memberInfo.uniID && { uniId: memberInfo.uniID }),
+        ...(!!memberInfo.uniId && { uniId: memberInfo.uniId }),
       };
       return teamMember;
     })
@@ -900,7 +900,7 @@ app.get('/detail', verifyAccessToken, async (req: Request, res: Response) => {
       'team_member'
     )
       .select(
-        'uni_id as uniID',
+        'uni_id as uniId',
         'name',
         'introduction',
         'profile_image as image'
