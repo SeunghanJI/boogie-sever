@@ -179,10 +179,11 @@ const checkLiked = (id: string, email: string): Promise<boolean> => {
   return isLiked;
 };
 
-app.patch('/', verifyAccessToken, async (req: Request, res: Response) => {
+app.patch('/:id', verifyAccessToken, async (req: Request, res: Response) => {
+  const id: string = req.params.id;
   const body = req.body;
 
-  if (!checkRequiredProperties(['id', 'title', 'content'], body)) {
+  if (!id || !checkRequiredProperties(['title', 'content'], body)) {
     return res.status(400).json({ message: '잘못된 요청입니다.' });
   }
 
@@ -205,7 +206,7 @@ app.patch('/', verifyAccessToken, async (req: Request, res: Response) => {
 
     await knex('board_content')
       .update({ title: body.title, content: body.content })
-      .where({ id: body.id });
+      .where({ id });
 
     res.status(200).json({ isUpdated: true });
   } catch (error: any) {
