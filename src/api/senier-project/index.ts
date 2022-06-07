@@ -442,7 +442,7 @@ app.patch(
                 ...(!!email && { email: email.id }),
               })
               .onConflict()
-              .merge();
+              .ignore();
           }
         ),
       ]);
