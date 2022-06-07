@@ -38,12 +38,11 @@ interface SenierProjectTeamMember {
   image?: string;
   id?: string;
 }
-
 interface SenierProject {
   id?: string;
   groupName?: string;
   year?: string;
-  teamMember?: string | SenierProjectTeamMember[];
+  teamMember: string | SenierProjectTeamMember[];
   link?: string | string[];
   plattform?: string | number[];
   technology?: string | number[];
@@ -51,9 +50,15 @@ interface SenierProject {
   viewCount?: number;
   [propsName: string]: any;
 }
-
 interface PostSenierProject extends SenierProject {
   teamMember: SenierProjectTeamMember[];
+}
+interface S3_FILE {
+  fieldname: string;
+  originalname: string;
+  encoding: string;
+  mimetype: string;
+  buffer: Buffer;
 }
 
 const jsonToObjectParse = (
@@ -301,6 +306,234 @@ app.post(
         return res.status(error.code).json({ message: error.message });
       }
 
+      res.status(500).json({ message: '서버요청에 실패하였습니다.' });
+    }
+  }
+);
+
+const fomatUpdateSenierProject = (
+  body: any,
+  s3UploadResult: any,
+  files: any
+) => {
+  const { teamMember, ...data } = body;
+  const checkUpdateProjectDesign: S3_FILE[] | undefined = Object.values(
+    files
+  ).find((file: any) => file[0].fieldname === 'projectDesign') as
+    | S3_FILE[]
+    | undefined;
+
+  if (!!checkUpdateProjectDesign) {
+    const projectDesign = s3UploadResult.find((s3UploadInfo: any) =>
+      s3UploadInfo.key.includes(checkUpdateProjectDesign[0].originalname)
+    );
+
+    data.projectDesign = projectDesign.key;
+  }
+
+  const newTeamMember: SenierProjectTeamMember[] = teamMember.map(
+    (member: SenierProjectTeamMember) => {
+      if (!member?.image) {
+        const image = s3UploadResult.find((s3UploadInfo: any) =>
+          s3UploadInfo.key.includes(member.name)
+        );
+
+        member.image = image.key;
+      }
+
+      return member;
+    }
+  );
+
+  return {
+    ...{ teamMember: newTeamMember },
+    ...data,
+  };
+};
+
+app.patch(
+  '/',
+  verifyAccessToken,
+  multer({
+    storage: multer.memoryStorage(),
+  }).fields([
+    { name: 'projectDesign', maxCount: 1 },
+    { name: 'profileImage1', maxCount: 1 },
+    { name: 'profileImage2', maxCount: 1 },
+    { name: 'profileImage3', maxCount: 1 },
+    { name: 'profileImage4', maxCount: 1 },
+  ]),
+  async (req: Request, res: Response) => {
+    if (
+      !checkRequiredProperties(
+        [
+          'groupName',
+          'classID',
+          'year',
+          'teamMember',
+          'link',
+          'plattform',
+          'technology',
+        ],
+        JSON.parse(JSON.stringify(req.body))
+      )
+    ) {
+      return res.status(400).json({ message: '잘못된 요청입니다,' });
+    }
+
+    const body: SenierProject = jsonToObjectParse(
+      ['teamMember', 'link', 'plattform', 'technology'],
+      req.body
+    );
+    const email: string = res.locals.email;
+
+    try {
+      const { is_admin: isAdmin } = await knex('user')
+        .select('is_admin')
+        .where({ id: email })
+        .first();
+
+      if (!isAdmin) {
+        return res
+          .status(403)
+          .json({ code: 403, message: '관리자 계정이 아닙니다.' });
+      }
+
+      const files: {
+        [fieldname: string]: Express.Multer.File[];
+      } = req.files as {
+        [fieldname: string]: Express.Multer.File[];
+      };
+
+      const s3UploadResult: AWS.S3.ManagedUpload.SendData[] =
+        await s3UploadFromBinary(files, `${body.year}/${body.groupName}`);
+      const senierProject: PostSenierProject = fomatUpdateSenierProject(
+        body,
+        s3UploadResult,
+        files
+      );
+
+      await Promise.all([
+        knex('senier_project')
+          .update({
+            class_id: senierProject.classID,
+            group_name: senierProject.groupName,
+            year: senierProject.year,
+            link: JSON.stringify(senierProject.link),
+            plattform: JSON.stringify(senierProject.plattform),
+            technology: JSON.stringify(senierProject.technology),
+            project_design: senierProject.projectDesign,
+          })
+          .where({ id: senierProject.id }),
+        senierProject.teamMember.map(
+          async (member: SenierProjectTeamMember) => {
+            const email: { id: string } = await knex('user')
+              .select('id')
+              .where({ is_student: 1, uni_id: member.uniID })
+              .first();
+
+            return knex('team_member')
+              .insert({
+                id: senierProject.id,
+                uni_id: member.uniID,
+                name: member.name,
+                introduction: member.introduction,
+                profile_image: member.image,
+                ...(!!email && { email: email.id }),
+              })
+              .onConflict()
+              .merge();
+          }
+        ),
+      ]);
+
+      res.status(201).json({ isPosted: true });
+    } catch (error: any) {
+      res.status(500).json({ message: '서버요청에 실패하였습니다.' });
+    }
+  }
+);
+
+app.delete('/:id', verifyAccessToken, async (req: Request, res: Response) => {
+  const id: string = req.params.id;
+
+  if (!id) {
+    return res.status(400).json({ message: '잘못된 요입니다.' });
+  }
+
+  const email: string = res.locals.email;
+
+  try {
+    const { is_admin: isAdmin } = await knex('user')
+      .select('is_admin')
+      .where({ id: email })
+      .first();
+
+    if (!isAdmin) {
+      return res
+        .status(403)
+        .json({ code: 403, message: '관리자 계정이 아닙니다.' });
+    }
+
+    const { deleteProjectDesign } = await knex('senier_project')
+      .select('project_design as deleteProjectDesign')
+      .where({ id })
+      .first();
+    const deleteProfileImages: { image: string }[] = await knex('team_member')
+      .select('profile_image as image')
+      .where({ id });
+
+    Promise.all([
+      deleteProfileImages.map((deleteInfo: { image: string }) => {
+        return s3Controller.deleteObject(deleteInfo.image);
+      }),
+      s3Controller.deleteObject(deleteProjectDesign),
+      knex('senier_project').where({ id }).delete(),
+      knex('team_member').where({ id }).delete(),
+    ]);
+
+    res.status(200).json({ isDeleted: true });
+  } catch (error: any) {
+    res.status(500).json({ message: '서버요청에 실패하였습니다.' });
+  }
+});
+
+app.delete(
+  '/member/:id',
+  verifyAccessToken,
+  async (req: Request, res: Response) => {
+    const id: string = req.params.id;
+
+    if (!id) {
+      return res.status(400).json({ message: '잘못된 요입니다.' });
+    }
+
+    const email: string = res.locals.email;
+
+    try {
+      const { is_admin: isAdmin } = await knex('user')
+        .select('is_admin')
+        .where({ id: email })
+        .first();
+
+      if (!isAdmin) {
+        return res
+          .status(403)
+          .json({ code: 403, message: '관리자 계정이 아닙니다.' });
+      }
+
+      const { deleteProfileImage } = await knex('team_member')
+        .select('profile_image as deleteProfileImage')
+        .where({ uni_id: id })
+        .first();
+
+      Promise.all([
+        s3Controller.deleteObject(deleteProfileImage),
+        knex('team_member').where({ uni_id: id }).delete(),
+      ]);
+
+      res.status(200).json({ isDeleted: true });
+    } catch (error: any) {
       res.status(500).json({ message: '서버요청에 실패하였습니다.' });
     }
   }
