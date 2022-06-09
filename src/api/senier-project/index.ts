@@ -808,7 +808,7 @@ app.get('/detail/announced', async (req: Request, res: Response) => {
 });
 
 app.get(
-  '/detail/group-name',
+  '/detail/group',
   (req: Request, res: Response, next: NextFunction) => {
     setViewCount(req, res, next, 'senier_project');
   },
@@ -820,12 +820,13 @@ app.get(
     }
 
     try {
-      const { groupName }: { groupName: string } = await knex('senier_project')
-        .select('group_name as groupName')
-        .where({ id })
-        .first();
+      const { groupName, year }: { groupName: string; year: string } =
+        await knex('senier_project')
+          .select('group_name as groupName', 'year')
+          .where({ id })
+          .first();
 
-      res.status(200).json({ groupName });
+      res.status(200).json({ groupName, year });
     } catch (error: any) {
       if (!isNaN(error.code) && !!error.message) {
         return res.status(error.code).json({ message: error.message });
