@@ -449,6 +449,7 @@ app.patch(
 
       res.status(201).json({ isPosted: true });
     } catch (error: any) {
+      console.log(error);
       res.status(500).json({ message: '서버요청에 실패하였습니다.' });
     }
   }
@@ -593,14 +594,14 @@ const formatSearchOption = (SerachOption: QueryElement) => {
   return `[${[...([SerachOption] as string[])]}]`;
 };
 
+const getNameByIds = (tableName: string, option: number[]) => {
+  return knex(tableName).select('name').whereIn('id', option);
+};
+
 const formatSenierProjectList = async (
   senierProject: SenierProject[],
   teamMembers: { [key: string]: string[] }
 ) => {
-  const getNameByIds = (tableName: string, option: number[]) => {
-    return knex(tableName).select('name').whereIn('id', option);
-  };
-
   const senierProjectList = await Promise.all(
     senierProject.map(async (data: SenierProject) => {
       const [plattforms, technologys] = await Promise.all([
@@ -708,6 +709,72 @@ app.get('/list', async (req: Request, res: Response) => {
       return res.status(error.code).json({ message: error.message });
     }
 
+    res.status(500).json({ message: '서버요청에 실패하였습니다.' });
+  }
+});
+
+const formatRecommendList = (recommendList: any) => {
+  return recommendList.map(async (recommendInfo: any) => {
+    const [teamMembers, plattforms, technologys] = await Promise.all([
+      knex('team_member').select('name').where({ id: recommendInfo.id }),
+      getNameByIds(
+        'plattform',
+        JSON.parse(recommendInfo.plattform) as number[]
+      ),
+      getNameByIds(
+        'technology',
+        JSON.parse(recommendInfo.technology) as number[]
+      ),
+    ]);
+
+    recommendInfo.teamMember =
+      formatTeamMembers(teamMembers)['undefined'].join(', ');
+    recommendInfo.plattform = plattforms
+      .map((plattform) => {
+        return plattform.name;
+      })
+      .join(', ');
+    recommendInfo.technology = technologys.map((technology) => {
+      return technology.name;
+    });
+
+    return recommendInfo;
+  });
+};
+
+app.get('/recommend', async (req: Request, res: Response) => {
+  const id: string = req.query.id as string;
+
+  if (!id) {
+    res.status(400).json({ message: '잘못된 요청입니다.' });
+  }
+
+  try {
+    const { plattform } = await knex('senier_project')
+      .select('plattform')
+      .where({ id })
+      .first();
+
+    const recommendList = await knex('senier_project')
+      .select(
+        'id',
+        'year',
+        'group_name as groupName',
+        'plattform',
+        'technology',
+        'view_count as viewCount'
+      )
+      .whereJsonSupersetOf('plattform', JSON.parse(plattform))
+      .whereNot({ id })
+      .orderByRaw('RAND()')
+      .limit(5);
+
+    const senierProjectRecommendList = await Promise.all(
+      formatRecommendList(recommendList)
+    );
+
+    res.status(200).json({ senierProjectRecommendList });
+  } catch (error: any) {
     res.status(500).json({ message: '서버요청에 실패하였습니다.' });
   }
 });
