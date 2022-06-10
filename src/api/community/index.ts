@@ -86,34 +86,32 @@ app.post('/', verifyAccessToken, async (req: Request, res: Response) => {
   }
 });
 
-const formatComments = (
-  comments: Comment[],
-  email: string
-): Promise<Comment>[] => {
+const formatComments = (comments: Comment[], email: string) => {
   return comments.map(async (comment: Comment) => {
-    let hasAuthority: boolean = false;
-    const { is_admin: isAdmin } = await knex('user')
-      .select('is_admin')
-      .where({ id: email })
-      .first();
-
-    if (email === comment.userId || isAdmin) {
-      hasAuthority = true;
-    }
-
-    return {
+    const newComments = {
       id: comment.id,
       userId: comment.userId,
       userNickname: comment.userNickname,
       content: comment.content,
       fromNowWhileAgoPosted: dayjs(`${comment.uploadedAt}`).fromNow(),
-      ...(hasAuthority && { hasAuthority }),
       ...(!!comment.profileImageURL && {
         profileImageURL: (
           (await s3Controller.getObjectURL(comment.profileImageURL)) as string
         ).split('?')[0],
       }),
     };
+    let hasAuthority: boolean = false;
+
+    if (email !== undefined) {
+      const { is_admin: isAdmin } = await knex('user')
+        .select('is_admin')
+        .where({ id: email })
+        .first();
+
+      hasAuthority = email === comment.userId || isAdmin;
+    }
+
+    return { ...newComments, ...(hasAuthority && { hasAuthority }) };
   });
 };
 
@@ -378,11 +376,6 @@ app.get(
     }
 
     try {
-      const { is_admin: isAdmin } = await knex('user')
-        .select('is_admin')
-        .where({ id: email })
-        .first();
-
       const originalBoardContent: BoardContent = await knex('board_content')
         .select(
           'board_content.id as id',
@@ -406,8 +399,13 @@ app.get(
         })
         .first();
 
-      if (email === originalBoardContent.userId || isAdmin) {
-        originalBoardContent.hasAuthority = true;
+      if (email !== undefined) {
+        const { is_admin: isAdmin } = await knex('user')
+          .select('is_admin')
+          .where({ id: email })
+          .first();
+        originalBoardContent.hasAuthority =
+          email === originalBoardContent.userId || isAdmin;
       }
 
       const content = await formatBoardContent(email, originalBoardContent);
