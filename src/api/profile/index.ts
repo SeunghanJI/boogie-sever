@@ -28,11 +28,12 @@ const knex: Knex = require('knex')({
 
 interface ProfileOptions {
   image?: string;
-  positions?: number[];
+  positions?: { id: number; name: string }[];
   technologies?: number[];
   introduction?: string;
   awards?: { name: string; awarededAt: string }[];
   links?: string[];
+  profileScore?: number;
 }
 
 interface Profile extends ProfileOptions {
@@ -129,11 +130,63 @@ const getProfileInfo = async (id: string, requester: string = id) => {
       }
     }
 
-    const profileInfo: Profile = { ...baseInfo, ...optionalInfo };
-    return profileInfo;
+    const profileScore = calculateProfileScore(optionalInfo);
+    const profileInfo: Profile = {
+      ...baseInfo,
+      ...optionalInfo,
+      profileScore,
+    };
+    return { profileInfo };
   } catch (error) {
     throw new Error('프로필 가져오기 실패');
   }
+};
+
+const calculateProfileScore = (optionalInfo: ProfileOptions) => {
+  const introductionScore = () => {
+    let score = 0;
+
+    if (!!optionalInfo.introduction?.length) {
+      if (optionalInfo.introduction.length >= 100) score++;
+      if (optionalInfo.introduction.length >= 200) score++;
+      if (optionalInfo.introduction.length >= 300) score = score + 2;
+    }
+    return score;
+  };
+
+  const technologyScore = () => {
+    let score = 0;
+
+    if (!!optionalInfo.technologies?.length) {
+      score++;
+      if (optionalInfo.technologies?.length >= 2) score++;
+      if (optionalInfo.technologies?.length >= 5) score = score + 2;
+    }
+
+    return score;
+  };
+
+  const positionScore = optionalInfo.positions?.length ? 1 : 0;
+  const awardsScore = !optionalInfo.awards?.length
+    ? 0
+    : optionalInfo.awards.length >= 2
+    ? 2
+    : 1;
+  const linksScore = !optionalInfo.links?.length
+    ? 0
+    : optionalInfo.links.length >= 2
+    ? 2
+    : 1;
+
+  const rawScore =
+    technologyScore() +
+    introductionScore() +
+    positionScore +
+    awardsScore +
+    linksScore;
+
+  const profileScore = Math.round((rawScore / 13) * 100);
+  return profileScore;
 };
 
 app.put(
@@ -210,7 +263,7 @@ app.put(
 
       const profileInfo = await getProfileInfo(id);
 
-      res.status(200).json({ profileInfo });
+      res.status(200).json(profileInfo);
     } catch (error) {
       res.status(500).json({ message: '서버요청 실패' });
     }
@@ -246,7 +299,7 @@ app.get('/', getUserEmail, async (req: Request, res: Response) => {
       return res.status(404).json({ message: '리소스를 찾을 수 없습니다.' });
     }
 
-    res.status(200).json({ profileInfo });
+    res.status(200).json(profileInfo);
   } catch (error) {
     res.status(500).json({ message: '서버 요청에 실패하였습니다.' });
   }
