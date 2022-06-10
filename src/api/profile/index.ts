@@ -33,6 +33,7 @@ interface ProfileOptions {
   introduction?: string;
   awards?: { name: string; awarededAt: string }[];
   links?: string[];
+  profileScore?: number;
 }
 
 interface Profile extends ProfileOptions {
@@ -128,10 +129,14 @@ const getProfileInfo = async (id: string, requester: string = id) => {
         optionalInfo.image = imageURL;
       }
     }
-    const profileScore = calculateProfileScore(optionalInfo);
 
-    const profileInfo: Profile = { ...baseInfo, ...optionalInfo };
-    return { profileInfo, profileScore };
+    const profileScore = calculateProfileScore(optionalInfo);
+    const profileInfo: Profile = {
+      ...baseInfo,
+      ...optionalInfo,
+      profileScore,
+    };
+    return { profileInfo };
   } catch (error) {
     throw new Error('프로필 가져오기 실패');
   }
