@@ -44,7 +44,7 @@ interface BoardContent {
   profileImageURL?: string | null;
   uploadedAt?: string;
   totalCommentLikes?: number;
-  isMe?: boolean;
+  hasAuthority?: boolean;
 }
 interface Comment {
   id: number;
@@ -91,17 +91,23 @@ const formatComments = (
   email: string
 ): Promise<Comment>[] => {
   return comments.map(async (comment: Comment) => {
-    let isMe: boolean = false;
-    if (email === comment.userId) {
-      isMe = true;
+    let hasAuthority: boolean = false;
+    const { is_admin: isAdmin } = await knex('user')
+      .select('is_admin')
+      .where({ id: email })
+      .first();
+
+    if (email === comment.userId || isAdmin) {
+      hasAuthority = true;
     }
+
     return {
       id: comment.id,
       userId: comment.userId,
       userNickname: comment.userNickname,
       content: comment.content,
       fromNowWhileAgoPosted: dayjs(`${comment.uploadedAt}`).fromNow(),
-      ...(isMe && { isMe }),
+      ...(hasAuthority && { hasAuthority }),
       ...(!!comment.profileImageURL && {
         profileImageURL: (
           (await s3Controller.getObjectURL(comment.profileImageURL)) as string
@@ -372,6 +378,11 @@ app.get(
     }
 
     try {
+      const { is_admin: isAdmin } = await knex('user')
+        .select('is_admin')
+        .where({ id: email })
+        .first();
+
       const originalBoardContent: BoardContent = await knex('board_content')
         .select(
           'board_content.id as id',
@@ -395,8 +406,8 @@ app.get(
         })
         .first();
 
-      if (email === originalBoardContent.userId) {
-        originalBoardContent.isMe = true;
+      if (email === originalBoardContent.userId || isAdmin) {
+        originalBoardContent.hasAuthority = true;
       }
 
       const content = await formatBoardContent(email, originalBoardContent);
