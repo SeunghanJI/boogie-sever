@@ -145,7 +145,7 @@ const getProfileInfo = async (id: string, requester: string = id) => {
       ...optionalInfo,
       profileScore,
     };
-    return { profileInfo };
+    return profileInfo;
   } catch (error) {
     throw new Error('프로필 가져오기 실패');
   }
@@ -272,7 +272,7 @@ app.put(
 
       const profileInfo = await getProfileInfo(id);
 
-      res.status(200).json(profileInfo);
+      res.status(200).json({ profileInfo });
     } catch (error) {
       res.status(500).json({ message: '서버요청 실패' });
     }
@@ -308,7 +308,7 @@ app.get('/', getUserEmail, async (req: Request, res: Response) => {
       return res.status(404).json({ message: '리소스를 찾을 수 없습니다.' });
     }
 
-    res.status(200).json(profileInfo);
+    res.status(200).json({ profileInfo });
   } catch (error) {
     res.status(500).json({ message: '서버 요청에 실패하였습니다.' });
   }
