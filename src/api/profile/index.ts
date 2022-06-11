@@ -75,7 +75,7 @@ const getProfileInfo = async (id: string, requester: string = id) => {
 
     if (!profile) {
       const userInfo = await knex('user')
-        .select('id as userId', 'nickname')
+        .select('id', 'nickname')
         .where({ id })
         .first();
 
