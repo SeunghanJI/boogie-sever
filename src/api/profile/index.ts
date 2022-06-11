@@ -75,12 +75,12 @@ const getProfileInfo = async (id: string, requester: string = id) => {
 
     if (!profile) {
       const userInfo = await knex('user')
-        .select('id as userId', 'nickname', 'is_student as isNotStudent')
+        .select('id as userId', 'nickname')
         .where({ id })
         .first();
 
       if (!!userInfo) {
-        return userInfo;
+        return { isNotStudent: true, ...userInfo };
       }
 
       return null;
