@@ -80,7 +80,7 @@ app.post('/code/email', (req: Request, res: Response) => {
       ]);
     })
     .then((ignore) => {
-      res.status(201).json({ isAuth: true });
+      res.status(201).json({ isSend: true });
     })
     .catch((err) => {
       res.status(500).json({ message: '서버요청에 실패하였습니다.' });
