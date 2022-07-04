@@ -31,7 +31,7 @@ interface ProfileOptions {
   positions?: { id: number; name: string }[];
   technologies?: number[];
   introduction?: string;
-  awards?: { name: string; awarededAt: string }[];
+  awards?: { name: string; awardedAt: string }[];
   links?: string[];
   profileScore?: number;
 }
@@ -151,29 +151,40 @@ const getProfileInfo = async (id: string, requester: string = id) => {
   }
 };
 
-const calculateProfileScore = (optionalInfo: ProfileOptions) => {
-  const introductionScore = () => {
+const calculateProfileScore = (optionalInfo: {
+  introduction?: string;
+  technologies?: number[];
+  positions?: { id: number; name: string }[];
+  awards?: { name: string; awardedAt: string }[];
+  links?: string[];
+}) => {
+  const introductionScore = (() => {
+    const MAX_SCORE = 4;
     let score = 0;
 
     if (!!optionalInfo.introduction?.length) {
-      if (optionalInfo.introduction.length >= 100) score++;
-      if (optionalInfo.introduction.length >= 200) score++;
-      if (optionalInfo.introduction.length >= 300) score = score + 2;
+      score = 2 ** (Math.floor(optionalInfo.introduction.length / 100) - 1);
+      if (score > MAX_SCORE) {
+        score = MAX_SCORE;
+      }
+      if (score < 1) {
+        score = 0;
+      }
     }
     return score;
-  };
+  })();
 
-  const technologyScore = () => {
+  const technologyScore = (() => {
     let score = 0;
 
     if (!!optionalInfo.technologies?.length) {
       score++;
-      if (optionalInfo.technologies?.length >= 2) score++;
-      if (optionalInfo.technologies?.length >= 5) score = score + 2;
+      if (optionalInfo.technologies.length >= 2) score++;
+      if (optionalInfo.technologies.length >= 5) score = score + 2;
     }
 
     return score;
-  };
+  })();
 
   const positionScore = optionalInfo.positions?.length ? 1 : 0;
   const awardsScore = !optionalInfo.awards?.length
@@ -188,8 +199,8 @@ const calculateProfileScore = (optionalInfo: ProfileOptions) => {
     : 1;
 
   const rawScore =
-    technologyScore() +
-    introductionScore() +
+    technologyScore +
+    introductionScore +
     positionScore +
     awardsScore +
     linksScore;
