@@ -117,6 +117,8 @@ const s3UploadFromBinary = async (
     Object.values(files).map(async ([file]) => {
       const fileBuffer = await (async () => {
         if (!(file.fieldname == 'projectDesign')) {
+          file.originalname = `${file.originalname}.png`;
+
           return await sharp(file.buffer)
             .resize({ fit: 'fill', width: 1080, height: 790 })
             .toBuffer();
@@ -173,6 +175,29 @@ const checkObjectEmptyValue = (
   }
 
   return keys[findEmptyIndex];
+};
+
+const doubleCheckMembers = async (teamMembers: SenierProjectTeamMember[]) => {
+  let isOk = false;
+  let duplicateMember: string[] = [];
+
+  const searchMembers = await Promise.all(
+    teamMembers.map(async (member: SenierProjectTeamMember) => {
+      return await knex('team_member')
+        .select('name')
+        .where({ uni_id: member.uniId })
+        .first();
+    })
+  );
+
+  searchMembers.forEach((member) => {
+    if (!!member) {
+      isOk = true;
+      duplicateMember.push(member.name);
+    }
+  });
+
+  return { isOk, duplicateMember: duplicateMember.join(', ') };
 };
 
 app.post(
@@ -277,6 +302,15 @@ app.post(
         s3UploadResult
       );
       const uniqueID: string = generatedUniqueID();
+      const checkMembersResult = await doubleCheckMembers(
+        senierProject.teamMember as SenierProjectTeamMember[]
+      );
+
+      if (checkMembersResult.isOk) {
+        return res.status(400).json({
+          message: `${checkMembersResult.duplicateMember} 은(는) 이미 등록되어 있습니다.`,
+        });
+      }
 
       await Promise.all([
         setTeamMembers(
@@ -301,7 +335,6 @@ app.post(
 
       res.status(201).json({ isPosted: true });
     } catch (error: any) {
-      console.log(error);
       if (!isNaN(error.code) && !!error.message) {
         return res.status(error.code).json({ message: error.message });
       }
@@ -449,7 +482,6 @@ app.patch(
 
       res.status(201).json({ isPosted: true });
     } catch (error: any) {
-      console.log(error);
       res.status(500).json({ message: '서버요청에 실패하였습니다.' });
     }
   }
