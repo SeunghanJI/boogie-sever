@@ -24,17 +24,17 @@ const knex: Knex = require('knex')({
 });
 
 interface Common {
-  isExistsProfile?: (id: string) => Promise<boolean>;
+  isExistsProfile: (id: string) => Promise<boolean>;
 }
 
-const common: Common = {};
-
-common.isExistsProfile = async (id: string) => {
-  const profile = await knex('user_profile')
-    .select('user_id as id')
-    .where({ user_id: id })
-    .first();
-  return !!profile;
+const common: Common = {
+  isExistsProfile: async (id: string) => {
+    const profile = await knex('user_profile')
+      .select('user_id as id')
+      .where({ user_id: id })
+      .first();
+    return !!profile;
+  },
 };
 
 export default common;
