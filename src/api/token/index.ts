@@ -32,7 +32,7 @@ app.post(
   '/refresh-token',
   verifyRefreshToken,
   async (req: Request, res: Response) => {
-    const email = 'youngsock32@naver.com'; //res.locals.email;
+    const email = res.locals.email;
     try {
       const { id, nickname, is_admin, profileImage } = await knex('user')
         .select(
