@@ -32,11 +32,17 @@ app.post(
   '/refresh-token',
   verifyRefreshToken,
   async (req: Request, res: Response) => {
-    const email = res.locals.email;
+    const email = 'youngsock32@naver.com'; //res.locals.email;
     try {
-      const { id, nickname, is_admin } = await knex('user')
-        .select('id', 'nickname', 'is_admin')
-        .where({ id: email })
+      const { id, nickname, is_admin, profileImage } = await knex('user')
+        .select(
+          'user.id as id',
+          'user.nickname as nickname',
+          'user.is_admin as is_admin',
+          'user_profile.image as profileImage'
+        )
+        .leftJoin('user_profile', 'user.id', 'user_profile.user_id')
+        .where({ 'user.id': email })
         .first();
 
       if (!id) {
@@ -55,6 +61,7 @@ app.post(
           nickname,
           email: id,
           isAdmin: is_admin,
+          ...(!!profileImage && { profileImage }),
         },
       });
     } catch (error) {

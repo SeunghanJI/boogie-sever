@@ -152,38 +152,50 @@ app.post('/login', (req: Request, res: Response) => {
   }
 
   knex('user')
-    .select('nickname', 'is_admin as isAdmin')
+    .select(
+      'user.nickname as nickname',
+      'user.is_admin as isAdmin',
+      'user_profile.image as profileImage'
+    )
+    .leftJoin('user_profile', 'user.id', 'user_profile.user_id')
     .where({ id, password: encryptString(password) })
     .first()
-    .then((user?: { nickname: string; isAdmin: string }) => {
-      if (!user) {
-        return Promise.reject({
-          code: 400,
-          message: '아이디 또는 비밀번호를 잘못 입력했습니다.',
+    .then(
+      (user?: {
+        nickname: string;
+        isAdmin: string;
+        profileImage: string | null;
+      }) => {
+        if (!user) {
+          return Promise.reject({
+            code: 400,
+            message: '아이디 또는 비밀번호를 잘못 입력했습니다.',
+          });
+        }
+
+        const refreshToken = generatedJwtToken({
+          email: id,
+          sub: 'refresh',
+          expiresIn: '24h',
+        });
+        const accessToken = generatedJwtToken({
+          email: id,
+          sub: 'access',
+          expiresIn: '5m',
+        });
+
+        res.status(200).json({
+          data: {
+            refreshToken,
+            accessToken,
+            email: id,
+            nickname: user.nickname,
+            isAdmin: user.isAdmin,
+            ...(!!user.profileImage && { profileImage: user.profileImage }),
+          },
         });
       }
-
-      const refreshToken = generatedJwtToken({
-        email: id,
-        sub: 'refresh',
-        expiresIn: '24h',
-      });
-      const accessToken = generatedJwtToken({
-        email: id,
-        sub: 'access',
-        expiresIn: '5m',
-      });
-
-      res.status(200).json({
-        data: {
-          refreshToken,
-          accessToken,
-          email: id,
-          nickname: user.nickname,
-          isAdmin: user.isAdmin,
-        },
-      });
-    })
+    )
     .catch((err) => {
       if (isNaN(err.code)) {
         return res.status(500).json({ message: '서버요청에 실패하였습니다.' });
