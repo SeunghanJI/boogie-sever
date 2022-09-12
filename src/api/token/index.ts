@@ -1,6 +1,7 @@
 import express, { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { Knex } from 'knex';
+import s3Controller from '../../s3';
 const app: express.Application = express();
 const knex: Knex = require('knex')({
   client: 'mysql',
@@ -34,12 +35,12 @@ app.post(
   async (req: Request, res: Response) => {
     const email = res.locals.email;
     try {
-      const { id, nickname, is_admin, profileImage } = await knex('user')
+      const { id, nickname, is_admin, profileImageKey } = await knex('user')
         .select(
           'user.id as id',
           'user.nickname as nickname',
           'user.is_admin as is_admin',
-          'user_profile.image as profileImage'
+          'user_profile.image as profileImageKey'
         )
         .leftJoin('user_profile', 'user.id', 'user_profile.user_id')
         .where({ 'user.id': email })
@@ -48,6 +49,8 @@ app.post(
       if (!id) {
         Promise.reject();
       }
+
+      const profileImage = await s3Controller.getObjectURL(profileImageKey);
 
       const accessToken = generatedJwtToken({
         email,

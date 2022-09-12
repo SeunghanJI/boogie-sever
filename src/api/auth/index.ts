@@ -3,6 +3,7 @@ import { Knex } from 'knex';
 import crypto from 'crypto';
 import { generatedJwtToken } from '../../token/index';
 import { checkObjectValueEmpty, verifyEmail } from '../../utils';
+import s3Controller from '../../s3/index';
 import dayjs from 'dayjs';
 import sendMail from '../../mail/index';
 import { verifyAccessToken } from '../../token/index';
@@ -155,16 +156,16 @@ app.post('/login', (req: Request, res: Response) => {
     .select(
       'user.nickname as nickname',
       'user.is_admin as isAdmin',
-      'user_profile.image as profileImage'
+      'user_profile.image as profileImageKey'
     )
     .leftJoin('user_profile', 'user.id', 'user_profile.user_id')
     .where({ id, password: encryptString(password) })
     .first()
     .then(
-      (user?: {
+      async (user?: {
         nickname: string;
         isAdmin: string;
-        profileImage: string | null;
+        profileImageKey: string | null;
       }) => {
         if (!user) {
           return Promise.reject({
@@ -172,6 +173,10 @@ app.post('/login', (req: Request, res: Response) => {
             message: '아이디 또는 비밀번호를 잘못 입력했습니다.',
           });
         }
+
+        const profileImage = await s3Controller.getObjectURL(
+          user.profileImageKey as string
+        );
 
         const refreshToken = generatedJwtToken({
           email: id,
@@ -191,7 +196,7 @@ app.post('/login', (req: Request, res: Response) => {
             email: id,
             nickname: user.nickname,
             isAdmin: user.isAdmin,
-            ...(!!user.profileImage && { profileImage: user.profileImage }),
+            ...(!!profileImage && { profileImage }),
           },
         });
       }
