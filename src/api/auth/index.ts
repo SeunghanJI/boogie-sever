@@ -222,23 +222,10 @@ interface joinBody {
   nickname: string;
   password: string;
   verifyPassword: string;
-  isStudent: boolean;
-  uniID?: string;
-  name?: string;
-  birthday?: string;
 }
 
 app.post('/join', (req: Request, res: Response) => {
-  const {
-    id,
-    nickname,
-    password,
-    verifyPassword,
-    isStudent,
-    uniID,
-    name,
-    birthday,
-  }: joinBody = req.body;
+  const { id, nickname, password, verifyPassword }: joinBody = req.body;
 
   if (
     !checkObjectValueEmpty({
@@ -246,7 +233,6 @@ app.post('/join', (req: Request, res: Response) => {
       nickname,
       password,
       verifyPassword,
-      isStudent,
     })
   ) {
     return res.status(400).json({ message: '잘못된 요청입니다.' });
@@ -256,55 +242,12 @@ app.post('/join', (req: Request, res: Response) => {
     return res.status(400).json({ message: '비밀번호가 일치하지 않습니다.' });
   }
 
-  const promiseAllArray = [
-    knex('user')
-      .select('id', 'nickname')
-      .where({ id })
-      .orWhere({ nickname })
-      .first(),
-  ];
-
-  if (isStudent) {
-    if (!checkObjectValueEmpty({ uniID, name, birthday })) {
-      return res.status(400).json({ message: '잘못된 요청입니다.' });
-    }
-
-    if (!isVaildBirthday(birthday)) {
-      return res.status(400).json({ message: '유효하지 않는 생년월일입니다.' });
-    }
-
-    promiseAllArray.push(
-      knex('student')
-        .select('name')
-        .where({
-          uni_id: uniID,
-          name: name,
-          birthday: birthday,
-        })
-        .first()
-    );
-
-    promiseAllArray.push(
-      knex('user')
-        .select('id')
-        .where({
-          uni_id: uniID,
-          name: name,
-          birthday: birthday,
-        })
-        .first()
-    );
-  }
-
-  Promise.all(promiseAllArray)
-    .then(([user, student, existingUser]) => {
-      if (isStudent && !!existingUser) {
-        return Promise.reject({
-          code: 409,
-          message: '이미 계정이 존재합니다.',
-        });
-      }
-
+  knex('user')
+    .select('id', 'nickname')
+    .where({ id })
+    .orWhere({ nickname })
+    .first()
+    .then((user) => {
       if (!!user) {
         if (user.id === id) {
           return Promise.reject({
@@ -321,27 +264,13 @@ app.post('/join', (req: Request, res: Response) => {
         }
       }
 
-      if (isStudent && !student) {
-        return Promise.reject({
-          code: 403,
-          message: '등록되어있지 않은 학생정보 입니다.',
-        });
-      }
-
-      return Promise.all([
+      return Promise.resolve(
         knex('user').insert({
           id,
           nickname,
-          name,
-          birthday,
-          uni_id: uniID,
           password: encryptString(password),
-          is_student: isStudent ? 1 : 0,
-        }),
-        knex('user_profile').insert({
-          user_id: id,
-        }),
-      ]);
+        })
+      );
     })
     .then((ignore) => {
       res.status(201).json({ isJoin: true });
@@ -387,7 +316,6 @@ app.post('/admin', verifyAccessToken, async (req: Request, res: Response) => {
       id,
       nickname: `admin${adminLength}`,
       password: encryptString(password),
-      is_student: 0,
       is_admin: 1,
     });
 
