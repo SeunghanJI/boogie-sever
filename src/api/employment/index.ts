@@ -15,6 +15,7 @@ import { verifyAccessToken, getUserEmail } from '../../token/index';
 import { REGION_MAP } from '../category/index';
 import s3Controller from '../../s3';
 import { setViewCount } from '../../view/index';
+import common from '../../common';
 dotenv.config();
 
 const app: express.Application = express();
@@ -405,21 +406,20 @@ app.post(
     const email: string = res.locals.email;
     const id: string = req.body.id;
     try {
-      const [user, jobPosting]: [
-        { id: string; name: string; is_student: number },
-        { userId: string; applicant: string }
+      const [user, jobPosting, isExistsProfile]: [
+        { id: string; name: string },
+        { userId: string; applicant: string },
+        boolean
       ] = await Promise.all([
-        knex('user')
-          .select('id', 'name', 'is_student')
-          .where({ id: email })
-          .first(),
+        knex('user').select('id', 'name').where({ id: email }).first(),
         knex('job_posting')
           .select('user_id as userId', 'applicant')
           .where({ id })
           .first(),
+        common.isExistsProfile(email),
       ]);
 
-      if (!user.is_student || jobPosting.userId === email) {
+      if (!isExistsProfile || jobPosting.userId === email) {
         return res.status(403).json({ message: '지원 하실 수 없습니다.' });
       }
 
