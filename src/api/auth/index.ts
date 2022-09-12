@@ -167,6 +167,7 @@ app.post('/login', (req: Request, res: Response) => {
         isAdmin: string;
         profileImageKey: string | null;
       }) => {
+        let profileImage: string | false = false;
         if (!user) {
           return Promise.reject({
             code: 400,
@@ -174,9 +175,11 @@ app.post('/login', (req: Request, res: Response) => {
           });
         }
 
-        const profileImage = await s3Controller.getObjectURL(
-          user.profileImageKey as string
-        );
+        if (!!user?.profileImageKey) {
+          profileImage = await s3Controller.getObjectURL(
+            user?.profileImageKey as string
+          );
+        }
 
         const refreshToken = generatedJwtToken({
           email: id,
@@ -202,6 +205,7 @@ app.post('/login', (req: Request, res: Response) => {
       }
     )
     .catch((err) => {
+      console.log(err);
       if (isNaN(err.code)) {
         return res.status(500).json({ message: '서버요청에 실패하였습니다.' });
       }
