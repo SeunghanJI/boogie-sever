@@ -4,6 +4,8 @@ import { verifyAccessToken, getUserEmail } from '../../token';
 import multer, { memoryStorage } from 'multer';
 import { Knex } from 'knex';
 import s3Controller from '../../s3/index';
+import common from '../../common';
+import { checkRequiredProperties } from '../../utils';
 import sharp from 'sharp';
 dotenv.config();
 
@@ -43,6 +45,37 @@ interface Profile extends ProfileOptions {
   isOpen: boolean;
 }
 
+app.post('/', verifyAccessToken, async (req: Request, res: Response) => {
+  const body: { uniId: string; name: string } = req.body;
+
+  if (!checkRequiredProperties(['uniId', 'name'], body)) {
+    return res.status(400).json({ message: '잘못된 요청입니다.' });
+  }
+
+  const email = res.locals.email;
+
+  try {
+    const isExistsProfile = await common.isExistsProfile(email);
+
+    if (isExistsProfile) {
+      return res
+        .status(400)
+        .json({ message: '이미 프로필이 생성되어 있습니다.' });
+    }
+
+    await Promise.all([
+      knex('user')
+        .update({ uni_id: body.uniId, name: body.name })
+        .where('id', email),
+      knex('user_profile').insert({ user_id: email }),
+    ]);
+
+    res.status(200).json({ isPost: true });
+  } catch (error) {
+    res.status(500).json({ message: '서버요청에 실패하였습니다.' });
+  }
+});
+
 const getProfileInfo = async (id: string, requester: string = id) => {
   const isMe = id === requester;
 
@@ -75,12 +108,17 @@ const getProfileInfo = async (id: string, requester: string = id) => {
 
     if (!profile) {
       const userInfo = await knex('user')
-        .select('id', 'nickname')
+        .select('id', 'nickname', 'is_admin as isAdmin')
         .where({ id })
         .first();
 
+      if (!!userInfo?.isAdmin) {
+        return { hasNotProfile: true, ...userInfo };
+      }
+
+      console.log(isMe);
       if (!!userInfo) {
-        return { isNotStudent: true, ...userInfo };
+        return { hasNotProfile: true, ...(!!isMe && { isMe }) };
       }
 
       return null;
@@ -147,6 +185,7 @@ const getProfileInfo = async (id: string, requester: string = id) => {
     };
     return profileInfo;
   } catch (error) {
+    console.log(error);
     throw new Error('프로필 가져오기 실패');
   }
 };
@@ -321,6 +360,7 @@ app.get('/', getUserEmail, async (req: Request, res: Response) => {
 
     res.status(200).json({ profileInfo });
   } catch (error) {
+    console.log(error);
     res.status(500).json({ message: '서버 요청에 실패하였습니다.' });
   }
 });
