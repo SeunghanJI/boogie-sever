@@ -63,7 +63,7 @@ app.post('/', verifyAccessToken, async (req: Request, res: Response) => {
         .json({ message: '이미 프로필이 생성되어 있습니다.' });
     }
 
-    const checkExistStudent = await knex('user_profile')
+    const checkExistStudent = await knex('user')
       .select('uni_id')
       .where({ uni_id: body.uniId })
       .first();
