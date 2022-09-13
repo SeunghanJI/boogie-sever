@@ -13,6 +13,10 @@ const s3 = new AWS.S3({
 
 const s3Controller = {
   isExists: async (fileKey: string) => {
+    if (!fileKey) {
+      return null;
+    }
+
     const params = {
       Bucket: S3_BUCKET_NAME,
       Key: fileKey,
