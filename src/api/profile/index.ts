@@ -63,6 +63,17 @@ app.post('/', verifyAccessToken, async (req: Request, res: Response) => {
         .json({ message: '이미 프로필이 생성되어 있습니다.' });
     }
 
+    const checkExistStudent = await knex('user_profile')
+      .select('uni_id')
+      .where({ uni_id: body.uniId })
+      .first();
+
+    if (!!checkExistStudent) {
+      return res
+        .status(400)
+        .json({ message: '이미 등록되어 있는 학생입니다.' });
+    }
+
     await Promise.all([
       knex('user')
         .update({ uni_id: body.uniId, name: body.name })
@@ -116,7 +127,6 @@ const getProfileInfo = async (id: string, requester: string = id) => {
         return { hasNotProfile: true, ...userInfo };
       }
 
-      console.log(isMe);
       if (!!userInfo) {
         return { hasNotProfile: true, ...(!!isMe && { isMe }) };
       }
@@ -185,7 +195,6 @@ const getProfileInfo = async (id: string, requester: string = id) => {
     };
     return profileInfo;
   } catch (error) {
-    console.log(error);
     throw new Error('프로필 가져오기 실패');
   }
 };
@@ -360,7 +369,6 @@ app.get('/', getUserEmail, async (req: Request, res: Response) => {
 
     res.status(200).json({ profileInfo });
   } catch (error) {
-    console.log(error);
     res.status(500).json({ message: '서버 요청에 실패하였습니다.' });
   }
 });
