@@ -819,11 +819,17 @@ const formatTeamMemberList = async (
       const imageURL =
         !!memberInfo.image &&
         (await s3Controller.getObjectURL(memberInfo.image));
+
+      const user = await knex('user')
+        .select('id')
+        .where({ uni_id: memberInfo.id, name: memberInfo.name })
+        .first();
+
       const teamMember: SenierProjectTeamMember = {
         name: memberInfo.name as string,
         introduction: memberInfo.introduction,
         ...(!!imageURL && { image: imageURL.split('?')[0] }),
-        ...(!!memberInfo.id && { id: memberInfo.id }),
+        ...(!!user.id && { id: user.id }), //수정
         ...(!!memberInfo.uniId && { uniId: memberInfo.uniId }),
       };
       return teamMember;
@@ -842,7 +848,7 @@ app.get('/detail/members', async (req: Request, res: Response) => {
 
   try {
     const teamMemberList: SenierProjectTeamMember[] = await knex('team_member')
-      .select('email as id', 'name', 'introduction', 'profile_image as image')
+      .select('uni_id as id', 'name', 'introduction', 'profile_image as image')
       .where({ id });
 
     res.status(200).json({
