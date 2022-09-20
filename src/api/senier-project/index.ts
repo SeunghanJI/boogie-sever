@@ -829,7 +829,7 @@ const formatTeamMemberList = async (
         name: memberInfo.name as string,
         introduction: memberInfo.introduction,
         ...(!!imageURL && { image: imageURL.split('?')[0] }),
-        ...(!!user.id && { id: user.id }), //수정
+        ...(!!user?.id && { id: user.id }),
         ...(!!memberInfo.uniId && { uniId: memberInfo.uniId }),
       };
       return teamMember;
@@ -855,6 +855,7 @@ app.get('/detail/members', async (req: Request, res: Response) => {
       senierProjectMemberList: await formatTeamMemberList(teamMemberList),
     });
   } catch (error: any) {
+    console.log(error);
     if (!isNaN(error.code) && !!error.message) {
       return res.status(error.code).json({ message: error.message });
     }
