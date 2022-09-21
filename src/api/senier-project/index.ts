@@ -855,7 +855,6 @@ app.get('/detail/members', async (req: Request, res: Response) => {
       senierProjectMemberList: await formatTeamMemberList(teamMemberList),
     });
   } catch (error: any) {
-    console.log(error);
     if (!isNaN(error.code) && !!error.message) {
       return res.status(error.code).json({ message: error.message });
     }
@@ -1006,12 +1005,7 @@ app.get('/detail', verifyAccessToken, async (req: Request, res: Response) => {
     const oldTeamMemberList: SenierProjectTeamMember[] = await knex(
       'team_member'
     )
-      .select(
-        'uni_id as uniId',
-        'name',
-        'introduction',
-        'profile_image as image'
-      )
+      .select('uni_id as id', 'name', 'introduction', 'profile_image as image')
       .where({ id });
     const teamMemberList = await formatTeamMemberList(oldTeamMemberList);
     const senierProjectDetailInfo = await formatSenierProjectDetail(
