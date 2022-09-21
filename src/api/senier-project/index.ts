@@ -93,11 +93,6 @@ const setTeamMembers = (
   id: string = ''
 ): Promise<number[]>[] => {
   return teamMembers.map(async (member) => {
-    const email: { id: string } = await knex('user')
-      .select('id')
-      .where({ is_student: 1, uni_id: member.uniId })
-      .first();
-
     return knex('team_member').insert({
       id,
       uni_id: member.uniId,
@@ -459,11 +454,6 @@ app.patch(
           .where({ id: senierProject.id }),
         senierProject.teamMember.map(
           async (member: SenierProjectTeamMember) => {
-            const email: { id: string } = await knex('user')
-              .select('id')
-              .where({ is_student: 1, uni_id: member.uniId })
-              .first();
-
             return knex('team_member')
               .insert({
                 id: senierProject.id,
