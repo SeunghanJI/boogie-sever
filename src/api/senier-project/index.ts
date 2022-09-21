@@ -818,8 +818,9 @@ const formatTeamMemberList = async (
         introduction: memberInfo.introduction,
         ...(!!imageURL && { image: imageURL.split('?')[0] }),
         ...(!!user?.id && { id: user.id }),
-        ...(!!memberInfo.uniId && { uniId: memberInfo.uniId }),
+        ...(!!memberInfo.id && { uniId: memberInfo.id }),
       };
+
       return teamMember;
     })
   );
