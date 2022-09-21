@@ -104,7 +104,6 @@ const setTeamMembers = (
       name: member.name,
       introduction: member.introduction,
       profile_image: member.image,
-      ...(!!email && { email: email.id }),
     });
   });
 };
@@ -472,7 +471,6 @@ app.patch(
                 name: member.name,
                 introduction: member.introduction,
                 profile_image: member.image,
-                ...(!!email && { email: email.id }),
               })
               .onConflict()
               .ignore();
