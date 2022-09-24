@@ -204,6 +204,10 @@ app.post(
     { name: 'profileImage2', maxCount: 1 },
     { name: 'profileImage3', maxCount: 1 },
     { name: 'profileImage4', maxCount: 1 },
+    { name: 'profileImage5', maxCount: 1 },
+    { name: 'profileImage6', maxCount: 1 },
+    { name: 'profileImage7', maxCount: 1 },
+    { name: 'profileImage8', maxCount: 1 },
   ]),
   verifyAccessToken,
   async (req: Request, res: Response, next: NextFunction) => {
