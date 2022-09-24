@@ -7,6 +7,7 @@ import s3Controller from '../../s3/index';
 import { checkRequiredProperties, generatedUniqueID } from '../../utils';
 import { setViewCount } from '../../view/index';
 import { verifyAccessToken } from '../../token/index';
+import { checkPrimeSync } from 'crypto';
 dotenv.config();
 
 const app: express.Application = express();
@@ -628,11 +629,13 @@ const formatSenierProjectList = async (
 ) => {
   const senierProjectList = await Promise.all(
     senierProject.map(async (data: SenierProject) => {
-      const [plattforms, technologys] = await Promise.all([
+      const [plattforms, technologys, classInfo] = await Promise.all([
         getNameByIds('plattform', data.plattform as number[]),
         getNameByIds('technology', data.technology as number[]),
+        knex('class').select('name').where({ id: data.classId }).first(),
       ]);
 
+      data.groupName = `${classInfo.name} ${data.groupName}`;
       data.teamMember = teamMembers[data.id as string].join(', ');
       data.plattform = plattforms
         .map((plattform) => {
@@ -663,6 +666,7 @@ app.get('/list', async (req: Request, res: Response) => {
   const getSenierProjects = knex('senier_project')
     .select(
       'id',
+      'class_id as classId',
       'group_name as groupName',
       'plattform',
       'technology',
