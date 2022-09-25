@@ -10,7 +10,7 @@ app.use('/token', apiToken);
 import apiMap from './map/index';
 app.use('/map', apiMap);
 
-import apiSenierProject from './senier-project';
+import apiSenierProject from './senier-project/index';
 app.use('/senier-project', apiSenierProject);
 
 import apiCategory from './category/index';
@@ -27,5 +27,8 @@ app.use('/profile', apiProfile);
 
 import apiHelp from './help/index';
 app.use('/help', apiHelp);
+
+import apiManagement from './management/index';
+app.use('/management', apiManagement);
 
 export default app;
