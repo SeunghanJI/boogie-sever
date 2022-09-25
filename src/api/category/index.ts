@@ -1,5 +1,6 @@
 import express, { Response, Request, NextFunction } from 'express';
 import { Knex } from 'knex';
+import { verifyAccessToken } from '../../token/index';
 const app: express.Application = express();
 
 const knex: Knex = require('knex')({
@@ -102,9 +103,98 @@ app.get('/community', async (req: Request, res: Response) => {
     const communityList: Category[] = await knex('board_category').select('*');
     res.status(200).json({ communityList });
   } catch (error) {
-    console.log(error);
     res.status(500).json({ message: '서버요청에 실패하였습니다.' });
   }
 });
+
+app.get('/year', async (req: Request, res: Response) => {
+  try {
+    const yearList: { id: string }[] = await knex('year')
+      .select('*')
+      .orderBy('id');
+    const yearListArr = yearList.map(({ id }) => {
+      return id;
+    });
+
+    res.status(200).json({ yearList: yearListArr });
+  } catch (error) {
+    res.status(500).json({ message: '서버요청에 실패하였습니다.' });
+  }
+});
+
+app.post('/year', verifyAccessToken, async (req: Request, res: Response) => {
+  const email: string = res.locals.email;
+  const body = req.body;
+
+  if (!body?.id) {
+    return res.status(400).json({ message: '잘못된 요청입니다.' });
+  }
+
+  const id: string = body.id;
+
+  if (!(1974 <= Number(id) && Number(id) <= 2100)) {
+    return res.status(400).json({ message: '잘못된 요청입니다.' });
+  }
+
+  try {
+    const requester = await knex('user')
+      .select('is_admin as isAdmin')
+      .where({ id: email })
+      .first();
+
+    if (!requester?.isAdmin) {
+      return res.status(403).json({ message: '수정 권한이 없습니다.' });
+    }
+
+    await knex('year').insert({ id }).onConflict('id').ignore();
+    const yearList: { id: string }[] = await knex('year')
+      .select('*')
+      .orderBy('id');
+    const yearListArr = yearList.map(({ id }) => {
+      return id;
+    });
+
+    res.status(200).json({ yearList: yearListArr });
+  } catch (error) {
+    res.status(500).json({ message: '서버요청에 실패하였습니다.' });
+  }
+});
+
+app.delete(
+  '/year/:id',
+  verifyAccessToken,
+  async (req: Request, res: Response) => {
+    const email: string = res.locals.email;
+    const id = req.params?.id;
+
+    if (!id) {
+      return res.status(400).json({ message: '잘못된 요청입니다.' });
+    }
+
+    try {
+      const requester = await knex('user')
+        .select('is_admin as isAdmin')
+        .where({ id: email })
+        .first();
+
+      if (!requester?.isAdmin) {
+        return res.status(403).json({ message: '수정 권한이 없습니다.' });
+      }
+
+      await knex('year').where({ id }).delete();
+
+      const yearList: { id: string }[] = await knex('year')
+        .select('*')
+        .orderBy('id');
+      const yearListArr = yearList.map(({ id }) => {
+        return id;
+      });
+
+      res.status(200).json({ yearList: yearListArr });
+    } catch (error) {
+      res.status(500).json({ message: '서버요청에 실패하였습니다.' });
+    }
+  }
+);
 
 export default app;
