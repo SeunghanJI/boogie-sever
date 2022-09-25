@@ -340,13 +340,64 @@ app.put(
 
 app.patch('/open', verifyAccessToken, async (req: Request, res: Response) => {
   const id: string = res.locals.email;
-  const willOpenInformation: boolean = req.body.willOpenInformation;
+  const willOpenInformation: boolean = req.body?.willOpenInformation;
+
+  if (!willOpenInformation) {
+    return res.status(400).json({ message: '잘못된 요청입니다.' });
+  }
 
   try {
     await knex('user_profile')
       .update({ is_open_information: willOpenInformation })
       .where({ user_id: id });
     res.status(200).json({ isOpen: willOpenInformation });
+  } catch (error) {
+    res.status(500).json({ message: '서버요청 실패' });
+  }
+});
+
+app.patch(
+  '/nickname',
+  verifyAccessToken,
+  async (req: Request, res: Response) => {
+    const id: string = res.locals.email;
+    const newNickname: string = req.body?.newNickname?.trim();
+
+    if (!newNickname) {
+      return res.status(400).json({ message: '잘못된 요청입니다.' });
+    }
+    if (!(1 < newNickname.length && newNickname.length <= 10)) {
+      return res
+        .status(400)
+        .json({ message: '사용 할 수 없는 닉네임 입니다.' });
+    }
+
+    try {
+      await knex('user').update({ nickname: newNickname }).where({ id: id });
+      res.status(200).json({ isChanged: true });
+    } catch (error) {
+      res.status(500).json({ message: '서버요청 실패' });
+    }
+  }
+);
+
+app.post('/nickname/exists', async (req: Request, res: Response) => {
+  const nickname: string = req.body?.nickname?.trim();
+
+  if (!nickname) {
+    return res.status(400).json({ message: '잘못된 요청입니다.' });
+  }
+  if (!(1 < nickname.length && nickname.length <= 10)) {
+    return res.status(400).json({ message: '사용 할 수 없는 닉네임 입니다.' });
+  }
+
+  try {
+    const isExists: { nickname: string } | undefined = await knex('user')
+      .select('nickname')
+      .where({ nickname })
+      .first();
+
+    res.status(200).json({ isExists: !!isExists });
   } catch (error) {
     res.status(500).json({ message: '서버요청 실패' });
   }
