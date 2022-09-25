@@ -83,6 +83,83 @@ app.post(
 
 app.get('/banner', async (req: Request, res: Response) => {});
 
+app.get('/student', verifyAccessToken, async (req: Request, res: Response) => {
+  const requesterId: string = res.locals.email;
+  const query = req.query;
+
+  if (!(query?.uniId || query?.name)) {
+    return res.status(400).json({ message: '잘못된 요청입니다.' });
+  }
+
+  try {
+    const requester = await knex('user')
+      .select('is_admin as isAdmin')
+      .where({ id: requesterId })
+      .first();
+
+    if (!requester?.isAdmin) {
+      return res.status(403).json({ message: '조회 권한 없습니다.' });
+    }
+
+    const studentListQueryBuilder = knex('user').select(
+      'id',
+      'uni_id as uniId',
+      'name'
+    );
+    if (query?.uniId) {
+      studentListQueryBuilder.where({ uni_id: query.uniId });
+    }
+    if (query?.name) {
+      studentListQueryBuilder.orWhere({ name: query.name });
+    }
+
+    const studentList: {
+      id: string;
+      uniId: string;
+      name: string;
+    }[] = await studentListQueryBuilder.whereNotNull('uni_id');
+    res.status(200).json({ studentList });
+  } catch (error) {
+    res.status(500).json({ message: '서버요청에 실패하였습니다.' });
+  }
+});
+
+app.patch(
+  '/student',
+  verifyAccessToken,
+  async (req: Request, res: Response) => {
+    const requesterId: string = res.locals.email;
+    const body = req.body;
+
+    if (!checkRequiredProperties(['id', 'uniId', 'name'], body)) {
+      return res.status(400).json({ message: '잘못된 요청입니다.' });
+    }
+
+    const { name, id, uniId } = body;
+
+    try {
+      const requester = await knex('user')
+        .select('is_admin as isAdmin')
+        .where({ id: requesterId })
+        .first();
+
+      if (!requester?.isAdmin) {
+        return res.status(403).json({ message: '조회 권한 없습니다.' });
+      }
+
+      await knex('user').update({ uni_id: uniId, name }).where({ id });
+
+      const studentList = await knex('user')
+        .select('id', 'uni_id as uniId', 'name')
+        .where({ id });
+
+      res.status(200).json({ studentList });
+    } catch (error) {
+      res.status(500).json({ message: '서버요청에 실패하였습니다.' });
+    }
+  }
+);
+
 app.get(
   '/admin/list',
   verifyAccessToken,
