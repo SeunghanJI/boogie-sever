@@ -8,6 +8,7 @@ import { checkRequiredProperties, generatedUniqueID } from '../../utils';
 import { setViewCount } from '../../view/index';
 import { verifyAccessToken } from '../../token/index';
 dotenv.config();
+const SUPERVISOR_ID = process.env.SUPERVISOR_ID || '';
 
 const app: express.Application = express();
 
@@ -30,6 +31,15 @@ const knex: Knex = require('knex')({
     },
   },
 });
+
+const getAdminList = async () => {
+  const adminList: { id: string; nickname: string }[] | [] = await knex('user')
+    .select('id', 'nickname')
+    .where({ is_admin: true })
+    .andWhereNot({ id: SUPERVISOR_ID });
+
+  return adminList;
+};
 
 app.post(
   '/banner',
@@ -73,8 +83,56 @@ app.post(
 
 app.get('/banner', async (req: Request, res: Response) => {});
 
+app.get(
+  '/admin/list',
+  verifyAccessToken,
+  async (req: Request, res: Response) => {
+    const requesterId = res.locals.email;
+
+    try {
+      const requester = await knex('user')
+        .select('is_admin as isAdmin')
+        .where({ id: requesterId })
+        .first();
+
+      if (!requester?.isAdmin) {
+        return res.status(403).json({ message: '조회 권한 없습니다.' });
+      }
+
+      const adminList = await getAdminList();
+
+      res.status(200).json({ adminList });
+    } catch (error) {
+      res.status(500).json({ message: '서버요청에 실패하였습니다.' });
+    }
+  }
+);
+
 app.delete('/banner/:id', async (req: Request, res: Response) => {
   const id = req.params.id;
 });
+
+app.delete(
+  '/admin/:id',
+  verifyAccessToken,
+  async (req: Request, res: Response) => {
+    const requesterId = res.locals.email;
+    const willDeleteAdmin = req.params?.id;
+
+    try {
+      if (requesterId !== SUPERVISOR_ID) {
+        return res.status(403).json({ message: '삭제 권한 없습니다.' });
+      }
+
+      await knex('user').where({ id: willDeleteAdmin }).delete();
+
+      const adminList = await getAdminList();
+
+      res.status(200).json({ adminList });
+    } catch (error) {
+      res.status(500).json({ message: '서버요청에 실패하였습니다.' });
+    }
+  }
+);
 
 export default app;
