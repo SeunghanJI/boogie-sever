@@ -2,10 +2,8 @@ import express, { Request, Response, NextFunction } from 'express';
 import { Knex } from 'knex';
 import multer from 'multer';
 import dotenv from 'dotenv';
-import sharp from 'sharp';
 import s3Controller from '../../s3/index';
 import { checkRequiredProperties, generatedUniqueID } from '../../utils';
-import { setViewCount } from '../../view/index';
 import { verifyAccessToken } from '../../token/index';
 dotenv.config();
 const SUPERVISOR_ID = process.env.SUPERVISOR_ID || '';
@@ -41,6 +39,40 @@ const getAdminList = async () => {
   return adminList;
 };
 
+const s3UploadFromBinary = async (files: {
+  [fieldname: string]: Express.Multer.File[];
+}): Promise<AWS.S3.ManagedUpload.SendData[]> => {
+  const s3UploadResultList: Promise<AWS.S3.ManagedUpload.SendData>[] =
+    Object.values(files).map(async ([file]) => {
+      const uniqueId = generatedUniqueID();
+      const key = `${uniqueId}_${file.originalname}`;
+
+      await knex('banner').insert({
+        name: file.originalname,
+        id: key,
+      });
+
+      return s3Controller.uploadFile(file.buffer, `banner/${key}`);
+    });
+
+  return Promise.all(s3UploadResultList);
+};
+
+const formatBannerInfo = (bannerInfo: any) => {
+  return bannerInfo.map(async (info: any) => {
+    const s3URLPath = `banner/${info.id}`;
+    const bannerImage = (
+      (await s3Controller.getObjectURL(s3URLPath)) as string
+    ).split('?')[0];
+
+    return {
+      fileName: info.name,
+      image: bannerImage,
+      key: info.id,
+    };
+  });
+};
+
 app.post(
   '/banner',
   multer({
@@ -59,21 +91,33 @@ app.post(
     } = req.files as {
       [fieldname: string]: Express.Multer.File[];
     };
-    const email = res.locals.email;
+    const requesterId = res.locals.email;
 
     try {
-      const { is_admin: isAdmin } = await knex('user')
-        .select('is_admin')
-        .where({ id: email })
+      const requester = await knex('user')
+        .select('is_admin as isAdmin')
+        .where({ id: requesterId })
         .first();
 
-      if (!isAdmin) {
-        return res
-          .status(403)
-          .json({ code: 403, message: '관리자 계정이 아닙니다.' });
+      if (!requester?.isAdmin) {
+        return res.status(403).json({ message: '관리자 계정이 아닙니다.' });
       }
 
-      res.status(200).json({ test: 'test' });
+      const oleBannerInfo = await knex('banner').select('id', 'name');
+
+      if (Object.values(files).length + oleBannerInfo.length > 5) {
+        return res
+          .status(400)
+          .json({ message: '등록할려는 베너가 5개 이상입니다.' });
+      }
+
+      const s3UploadResult: AWS.S3.ManagedUpload.SendData[] =
+        await s3UploadFromBinary(files);
+
+      const newBannerInfo = await knex('banner').select('id', 'name');
+      const bannerList = await Promise.all(formatBannerInfo(newBannerInfo));
+
+      res.status(200).json({ bannerList });
     } catch (error: any) {
       console.log(error);
       res.status(500).json({ message: '서버요청에 실패하였습니다.' });
@@ -81,7 +125,27 @@ app.post(
   }
 );
 
-app.get('/banner', async (req: Request, res: Response) => {});
+app.get('/banner', verifyAccessToken, async (req: Request, res: Response) => {
+  const requesterId: string = res.locals.email;
+
+  try {
+    const requester = await knex('user')
+      .select('is_admin as isAdmin')
+      .where({ id: requesterId })
+      .first();
+
+    if (!requester?.isAdmin) {
+      return res.status(403).json({ message: '조회 권한 없습니다.' });
+    }
+
+    const bannerInfo = await knex('banner').select('id', 'name');
+    const bannerList = await Promise.all(formatBannerInfo(bannerInfo));
+
+    res.status(200).json({ bannerList });
+  } catch (error) {
+    res.status(500).json({ message: '서버요청에 실패하였습니다.' });
+  }
+});
 
 app.get('/student', verifyAccessToken, async (req: Request, res: Response) => {
   const requesterId: string = res.locals.email;
@@ -185,9 +249,37 @@ app.get(
   }
 );
 
-app.delete('/banner/:id', async (req: Request, res: Response) => {
-  const id = req.params.id;
-});
+app.delete(
+  '/banner/:id',
+  verifyAccessToken,
+  async (req: Request, res: Response) => {
+    const requesterId = res.locals.email;
+    const id = req.params.id;
+
+    try {
+      const requester = await knex('user')
+        .select('is_admin as isAdmin')
+        .where({ id: requesterId })
+        .first();
+
+      if (!requester?.isAdmin) {
+        return res.status(403).json({ message: '관리자 계정이 아닙니다.' });
+      }
+
+      await Promise.all([
+        s3Controller.deleteObject(`banner/${id}`),
+        knex('banner').where({ id }).delete(),
+      ]);
+
+      const bannerInfo = await knex('banner').select('id', 'name');
+      const bannerList = await Promise.all(formatBannerInfo(bannerInfo));
+
+      res.status(200).json({ bannerList });
+    } catch (error: any) {
+      res.status(500).json({ message: '서버요청에 실패하였습니다.' });
+    }
+  }
+);
 
 app.delete(
   '/admin/:id',
