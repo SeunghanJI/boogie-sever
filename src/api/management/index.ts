@@ -1,5 +1,7 @@
 import express, { Request, Response, NextFunction } from 'express';
 import { Knex } from 'knex';
+import crypto from 'crypto';
+import { checkObjectValueEmpty } from '../../utils';
 import multer from 'multer';
 import dotenv from 'dotenv';
 import s3Controller from '../../s3/index';
@@ -37,6 +39,10 @@ const getAdminList = async () => {
     .andWhereNot({ id: SUPERVISOR_ID });
 
   return adminList;
+};
+
+const encryptString = (str: string = ''): string => {
+  return crypto.createHash('sha256').update(str).digest('base64');
 };
 
 const s3UploadFromBinary = async (files: {
@@ -124,6 +130,51 @@ app.post(
     }
   }
 );
+
+app.post('/admin', verifyAccessToken, async (req: Request, res: Response) => {
+  const email: string = res.locals.email;
+  const id: string = req.body.id;
+  const password: string = req.body.password;
+
+  if (
+    !checkObjectValueEmpty({
+      id,
+      password,
+    })
+  ) {
+    return res.status(400).json({ message: '잘못된 요청입니다.' });
+  }
+
+  try {
+    const { is_admin: isAdmin } = await knex('user')
+      .select('nickname', 'is_admin')
+      .where({ id: email })
+      .first();
+
+    if (!isAdmin) {
+      return res.status(403).json({ message: '관리자 계정이 아닙니다.' });
+    }
+
+    const admins = await knex('user')
+      .select('is_admin')
+      .where({ is_admin: true });
+    const adminLength = admins.length;
+
+    await knex('user').insert({
+      id,
+      nickname: `admin${adminLength}`,
+      password: encryptString(password),
+      is_admin: 1,
+    });
+
+    res.status(201).json({ isJoin: true });
+  } catch (error: any) {
+    if (isNaN(error.code)) {
+      return res.status(500).json({ message: '서버요청에 실패하였습니다.' });
+    }
+    res.status(error.code).json({ message: error.message });
+  }
+});
 
 app.get('/banner', verifyAccessToken, async (req: Request, res: Response) => {
   const requesterId: string = res.locals.email;
