@@ -31,4 +31,7 @@ app.use('/help', apiHelp);
 import apiManagement from './management/index';
 app.use('/management', apiManagement);
 
+import apiBanner from './banner/index';
+app.use('/banner', apiBanner);
+
 export default app;
