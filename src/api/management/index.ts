@@ -54,8 +54,8 @@ const s3UploadFromBinary = async (files: {
       const key = `${uniqueId}_${file.originalname}`;
 
       await knex('banner').insert({
+        key,
         name: file.originalname,
-        id: key,
       });
 
       return s3Controller.uploadFile(file.buffer, `banner/${key}`);
@@ -66,7 +66,7 @@ const s3UploadFromBinary = async (files: {
 
 const formatBannerInfo = (bannerInfo: any) => {
   return bannerInfo.map(async (info: any) => {
-    const s3URLPath = `banner/${info.id}`;
+    const s3URLPath = `banner/${info.key}`;
     const bannerImage = (
       (await s3Controller.getObjectURL(s3URLPath)) as string
     ).split('?')[0];
@@ -74,7 +74,7 @@ const formatBannerInfo = (bannerInfo: any) => {
     return {
       fileName: info.name,
       image: bannerImage,
-      key: info.id,
+      key: info.key,
     };
   });
 };
@@ -109,7 +109,7 @@ app.post(
         return res.status(403).json({ message: '관리자 계정이 아닙니다.' });
       }
 
-      const oleBannerInfo = await knex('banner').select('id', 'name');
+      const oleBannerInfo = await knex('banner').select('key', 'name');
 
       if (Object.values(files).length + oleBannerInfo.length > 5) {
         return res
@@ -120,7 +120,7 @@ app.post(
       const s3UploadResult: AWS.S3.ManagedUpload.SendData[] =
         await s3UploadFromBinary(files);
 
-      const newBannerInfo = await knex('banner').select('id', 'name');
+      const newBannerInfo = await knex('banner').select('key', 'name');
       const bannerList = await Promise.all(formatBannerInfo(newBannerInfo));
 
       res.status(200).json({ bannerList });
@@ -189,7 +189,7 @@ app.get('/banner', verifyAccessToken, async (req: Request, res: Response) => {
       return res.status(403).json({ message: '조회 권한 없습니다.' });
     }
 
-    const bannerInfo = await knex('banner').select('id', 'name');
+    const bannerInfo = await knex('banner').select('key', 'name');
     const bannerList = await Promise.all(formatBannerInfo(bannerInfo));
 
     res.status(200).json({ bannerList });
@@ -319,10 +319,10 @@ app.delete(
 
       await Promise.all([
         s3Controller.deleteObject(`banner/${id}`),
-        knex('banner').where({ id }).delete(),
+        knex('banner').where({ key: id }).delete(),
       ]);
 
-      const bannerInfo = await knex('banner').select('id', 'name');
+      const bannerInfo = await knex('banner').select('key', 'name');
       const bannerList = await Promise.all(formatBannerInfo(bannerInfo));
 
       res.status(200).json({ bannerList });
