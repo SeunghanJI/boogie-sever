@@ -29,7 +29,7 @@ const knex: Knex = require('knex')({
 const fomatBannerList = (bannerInfo: any) => {
   return bannerInfo.map(async (info: any) => {
     const bannerImage = (
-      (await s3Controller.getObjectURL(`banner/${info.id}`)) as string
+      (await s3Controller.getObjectURL(`banner/${info.key}`)) as string
     ).split('?')[0];
 
     return bannerImage;
@@ -38,7 +38,7 @@ const fomatBannerList = (bannerInfo: any) => {
 
 app.get('/', async (req: Request, res: Response) => {
   try {
-    const bannerInfo = await knex('banner').select('id');
+    const bannerInfo = await knex('banner').select('key');
     const bannerImageList = await Promise.all(fomatBannerList(bannerInfo));
 
     res.status(200).json({ bannerImageList });
